@@ -21,9 +21,11 @@
  *                                                                         *
  ***************************************************************************/
 """
-from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication
+from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction
+from random import randint
+from qgis.core import *
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -182,6 +184,65 @@ class myplugin:
         del self.toolbar
 
 
+
+
+
+    def randpointlist(self, layer, pointnumber):
+        lst = []
+        ext = layer.extent()
+        xmax = ext.xMaximum()
+        xmin = ext.xMinimum()
+        ymax = ext.yMaximum()
+        ymin = ext.yMinimum()
+        checkervalue = 0
+        i = 1
+        while i <= int(pointnumber):
+            while True:
+                x_coord = randint(int(xmin), int(xmax))
+                y_coord = randint(int(ymin), int(ymax))
+                randomPointGeometry = QgsGeometry.fromPointXY(QgsPointXY(x_coord, y_coord))
+                for polygon in layer.getFeatures():
+                    if polygon.geometry().contains(randomPointGeometry):
+                       checkervalue = 1
+                if checkervalue == 1:
+                    lst.append([x_coord,  y_coord])
+                    checkervalue = 0
+                    break
+                else:
+                    pass
+            i = i+1
+        return lst
+
+
+
+    def createpointlayer(self, nm, lst):
+        layer = QgsVectorLayer("Point", str(nm), "memory")
+        pr = layer.dataProvider()
+        pr.addAttributes([QgsField("number", QVariant.String),
+                          QgsField("x", QVariant.Double),
+                          QgsField("y", QVariant.Double)])
+        layer.updateFields()
+        n = 1
+        for list in lst:
+            fet = QgsFeature()
+            fet.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(list[0], list[1])))
+            fet.setAttributes([str(n), list[0], list[1]])
+            pr.addFeatures([fet])
+            n = n+1
+        layer.updateExtents()
+        return layer
+
+
+    def randompointcreator(self):
+        nm = self.dlg.name_widget.text()
+        pointnumber = self.dlg.point_number.text()
+        selected_layer = self.iface.activeLayer()
+        lst = self.randpointlist(selected_layer, pointnumber)
+        random_layer = self.createpointlayer(nm, lst)
+        QgsProject.instance().addMapLayer(random_layer)
+
+
+
     def run(self):
         """Run method that performs all the real work"""
         # show the dialog
@@ -192,4 +253,4 @@ class myplugin:
         if result:
             # Do something useful here - delete the line containing pass and
             # substitute with your code.
-            pass
+            self.randompointcreator()
