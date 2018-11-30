@@ -24,7 +24,7 @@
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction
-from random import randint
+from random import uniform
 from qgis.core import *
 
 # Initialize Qt resources from file resources.py
@@ -198,8 +198,8 @@ class myplugin:
         i = 1
         while i <= int(pointnumber):
             while True:
-                x_coord = randint(int(xmin), int(xmax))
-                y_coord = randint(int(ymin), int(ymax))
+                x_coord = uniform(float(xmin), float(xmax))
+                y_coord = uniform(float(ymin), float(ymax))
                 randomPointGeometry = QgsGeometry.fromPointXY(QgsPointXY(x_coord, y_coord))
                 for polygon in layer.getFeatures():
                     if polygon.geometry().contains(randomPointGeometry):
