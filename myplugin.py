@@ -21,17 +21,20 @@
  *                                                                         *
  ***************************************************************************/
 """
+import sys
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout
 from random import uniform
 from qgis.core import *
+from .error_window import Ui_error_window
 
 # Initialize Qt resources from file resources.py
 from .resources import *
 # Import the code for the dialog
 from .myplugin_dialog import mypluginDialog
 import os.path
+
 
 
 class myplugin:
@@ -233,13 +236,78 @@ class myplugin:
         return layer
 
 
+
+    def error_window(self, text_error):
+        windw = QWidget()
+        windw.setWindowTitle("Error Window")
+        cancel_button = QPushButton()
+        cancel_button.setText("Cancel")
+        ok_button = QPushButton()
+        ok_button.setText("Again")
+        error_text = QTextBrowser()
+        label = QLabel()
+        label.setText("Press Again to restart the plugin GUI or Cancel to close plugin")
+        vbox = QVBoxLayout()
+        hbox = QHBoxLayout()
+        ok_button.clicked.connect(lambda: self.error_window_ok(windw))
+        cancel_button.clicked.connect(lambda: windw.close())
+        error_text.append(text_error)
+        vbox.addWidget(error_text)
+        vbox.addStretch()
+        vbox.addWidget(label)
+        vbox.addStretch()
+        hbox.addWidget(ok_button)
+        hbox.addStretch()
+        hbox.addWidget(cancel_button)
+        hbox.addStretch()
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    def error_window_ok(self, windw):
+        windw.close()
+        self.run()
+
+
+    def number_check(self, n):
+        try:
+            float(n)
+        except ValueError:
+            return False
+
+
+
+
     def randompointcreator(self):
-        nm = self.dlg.name_widget.text()
+        error_print_text = "The following error(s) occured"
+        error_1 = "Random point number should be a number"
+        error_2 = "Random point number should be an integer"
+        error_3 = "A layer should be selected"
+        precheckvalue = int()
+        is_number_value = int()
         pointnumber = self.dlg.point_number.text()
+        is_number = self.number_check(pointnumber)
         selected_layer = self.iface.activeLayer()
-        lst = self.randpointlist(selected_layer, pointnumber)
-        random_layer = self.createpointlayer(nm, lst)
-        QgsProject.instance().addMapLayer(random_layer)
+        nm = self.dlg.name_widget.text()
+        if is_number == False:
+            error_print_text = error_print_text + "\n" + error_1
+            precheckvalue = precheckvalue +1
+            is_number_value = is_number_value + 1
+        if is_number_value == 0:
+            if float(pointnumber)-round(float(pointnumber), 0) != 0:
+                error_print_text = error_print_text + "\n" + error_2
+                precheckvalue = precheckvalue + 1
+        if selected_layer is None:
+            error_print_text = error_print_text + "\n" + error_3
+            precheckvalue = precheckvalue + 1
+        if precheckvalue != 0:
+            " ".join(error_print_text)
+            self.error_window(error_print_text)
+        else:
+            lst = self.randpointlist(selected_layer, pointnumber)
+            random_layer = self.createpointlayer(nm, lst)
+            QgsProject.instance().addMapLayer(random_layer)
 
 
 
