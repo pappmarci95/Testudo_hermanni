@@ -24,10 +24,9 @@
 import sys
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout
-from random import uniform
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit
+from random import uniform, sample
 from qgis.core import *
-from .error_window import Ui_error_window
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -68,6 +67,7 @@ class myplugin:
 
         # Create the dialog (after translation) and keep reference
         self.dlg = mypluginDialog()
+        self.dlg.get_random.clicked.connect(lambda: self.random_feature_window())
 
         # Declare instance attributes
         self.actions = []
@@ -190,6 +190,11 @@ class myplugin:
 
 
 
+
+
+
+
+
     def randpointlist(self, layer, pointnumber):
         lst = []
         ext = layer.extent()
@@ -237,6 +242,13 @@ class myplugin:
 
 
 
+
+
+
+
+
+
+
     def error_window(self, text_error):
         windw = QWidget()
         windw.setWindowTitle("Error Window")
@@ -279,27 +291,169 @@ class myplugin:
 
 
 
+
+
+
+
+
+    def random_feature_window(self):
+        windw = QWidget()
+        windw.setWindowTitle("Random features")
+        cancel_button = QPushButton()
+        cancel_button.setText("Cancel")
+        cancel_button.clicked.connect(lambda: windw.close())
+        feature_text = QTextBrowser()
+        number_label = QLabel()
+        number_label.setText("Number of random features:")
+        random_number = QLineEdit()
+        get_features = QPushButton()
+        get_features.setText("Get")
+        get_features.clicked.connect(lambda: self.rand_features(random_number, feature_text))
+        get_label = QLabel()
+        get_label.setText("Get the random features:")
+        hbox = QHBoxLayout()
+        hbox.addWidget(number_label)
+        hbox.addStretch()
+        hbox.addWidget(random_number)
+        hbox.addStretch()
+        hbox2 = QHBoxLayout()
+        hbox2.addWidget(get_label)
+        hbox2.addStretch()
+        hbox2.addWidget(get_features)
+        hbox2.addStretch()
+        vbox = QVBoxLayout()
+        vbox.addLayout(hbox)
+        vbox.addLayout(hbox2)
+        vbox.addWidget(feature_text)
+        vbox.addStretch()
+        vbox.addWidget(cancel_button)
+        vbox.addStretch()
+        windw.setLayout(vbox)
+        windw.show()
+
+    def error_window_features(self, text_error):
+        windw = QWidget()
+        windw.setWindowTitle("Error Window")
+        cancel_button = QPushButton()
+        cancel_button.setText("Cancel")
+        cancel_button.clicked.connect(lambda: windw.close())
+        error_text = QTextBrowser()
+        error_text.append(text_error)
+        vbox = QVBoxLayout()
+        vbox.addWidget(error_text)
+        vbox.addStretch()
+        vbox.addWidget(cancel_button)
+        vbox.addStretch()
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    def rand_features(self, numb, text):
+        text.clear()
+        numb = numb.text()
+        lay = self.iface.activeLayer()
+        error_text = "The following error(s) occured:"
+        error_1 = "A layer must be selected"
+        error_2 = "The selected layer should have features"
+        error_3 = "The number of the random features must be a number"
+        error_4 = "The number of desired random features must be over zero"
+        error_5 = "The number of random features should be an integer"
+        error_6 = "The number of random features can't be over the amount of the layers features"
+        precheckvalue = int()
+        there_is_layer_value = int()
+        if lay is not None:
+            there_is_layer_value = there_is_layer_value + 1
+        pre_feat_numb = int()
+        there_isnt_features_value = int()
+        if lay is not None:
+            prefeats = lay.getFeatures()
+            if prefeats is not None:
+                for pref in prefeats:
+                    pre_feat_numb = pre_feat_numb + 1
+            else:
+                there_isnt_features_value = there_isnt_features_value + 1
+        else:
+            there_isnt_features_value = there_isnt_features_value + 1
+        is_number = self.number_check(numb)
+        isnt_number_value = int()
+        if lay is None:
+            error_text = error_text + "\n" + error_1
+            precheckvalue = precheckvalue + 1
+        if there_is_layer_value == 1:
+            if there_isnt_features_value == 1:
+                error_text = error_text + "\n" + error_2
+                precheckvalue = precheckvalue + 1
+        if is_number == False:
+            error_text = error_text + "\n" + error_3
+            precheckvalue = precheckvalue + 1
+            isnt_number_value = isnt_number_value + 1
+        if isnt_number_value == 0:
+            if float(numb) <= 0:
+                error_text = error_text + "\n" + error_4
+                precheckvalue = precheckvalue + 1
+            if float(numb)-round(float(numb), 0) != 0:
+                error_text = error_text + "\n" + error_5
+                precheckvalue = precheckvalue + 1
+            if there_isnt_features_value == 0:
+                if float(numb) > pre_feat_numb:
+                    error_text = error_text + "\n" + error_6
+                    precheckvalue = precheckvalue + 1
+        if precheckvalue != 0:
+            " ".join(error_text)
+            self.error_window_features(error_text)
+        else:
+            features = str()
+            feats = lay.getFeatures()
+            feat_numb = int(0)
+            for x in feats:
+                feat_numb = feat_numb + 1
+            numb = int(numb)
+            rand_list = list(range(1, feat_numb))
+            rand_numb = sample(rand_list, numb)
+            request = QgsFeatureRequest()
+            request.setFilterFids(rand_numb)
+            specific_features = lay.getFeatures(request)
+            for fet in specific_features:
+                feat_id = fet.id()
+                feat_id = str(feat_id)
+                feat = str(fet)
+                feature_string = feat_id + ", " + feat + "\n"
+                features = features + feature_string
+            text.append(features)
+
+
+
+
+
+
+
+
+
     def randompointcreator(self):
+        selected_layer = self.iface.activeLayer()
+        pointnumber = self.dlg.point_number.text()
+        nm = self.dlg.name_widget.text()
         error_print_text = "The following error(s) occured"
         error_1 = "Random point number should be a number"
         error_2 = "Random point number should be an integer"
-        error_3 = "A layer should be selected"
+        error_3 = "Random point number must be over zero"
+        error_4 = "A layer should be selected"
         precheckvalue = int()
-        is_number_value = int()
-        pointnumber = self.dlg.point_number.text()
+        isnt_number_value = int()
         is_number = self.number_check(pointnumber)
-        selected_layer = self.iface.activeLayer()
-        nm = self.dlg.name_widget.text()
         if is_number == False:
             error_print_text = error_print_text + "\n" + error_1
-            precheckvalue = precheckvalue +1
-            is_number_value = is_number_value + 1
-        if is_number_value == 0:
+            precheckvalue = precheckvalue + 1
+            isnt_number_value = isnt_number_value + 1
+        if isnt_number_value == 0:
             if float(pointnumber)-round(float(pointnumber), 0) != 0:
                 error_print_text = error_print_text + "\n" + error_2
                 precheckvalue = precheckvalue + 1
+            if pointnumber <= 0:
+                error_print_text = error_print_text + "\n" + error_3
+                precheckvalue = precheckvalue + 1
         if selected_layer is None:
-            error_print_text = error_print_text + "\n" + error_3
+            error_print_text = error_print_text + "\n" + error_4
             precheckvalue = precheckvalue + 1
         if precheckvalue != 0:
             " ".join(error_print_text)
