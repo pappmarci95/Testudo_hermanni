@@ -22,11 +22,14 @@
  ***************************************************************************/
 """
 import sys
+#import os
+#import tempfile
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget
 from random import uniform, sample
 from qgis.core import *
+import processing
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -465,8 +468,264 @@ class myplugin:
 
 
 
+
+
+
+
+
+
+
+
+    # Error window for raster processing:
+    def errorwindow(self, numb, selected_vect_layer_name):
+        text = ""
+        if numb == 1:
+            text = "There should be a vector layer loaded"
+        if numb == 2:
+            text = "A layer must be selected"
+        if numb == 3:
+            text = "The layer should have a unique name"
+        if numb == 4:
+            text = "There should be a raster layer loaded"
+        if numb == 5:
+            text = "There should be a feature in the layer"
+        if numb == 6:
+            text = "There should be a polygon feature among features"
+        if numb == 7:
+            text = "A layer must be selected"
+        if numb == 8:
+            text = "The layer should have a unique name"
+        if numb == 10:
+            text = "NOT VALID LAYER"
+        if numb == 10:
+            text = str(selected_vect_layer_name)
+        windw = QWidget()
+        windw.setWindowTitle("Error window")
+        textbox = QTextBrowser()
+        textbox.append(text)
+        ok_button = QPushButton()
+        ok_button.setText("OK")
+        if numb == 1:
+            ok_button.clicked.connect(lambda: windw.close())
+        if numb == 2:
+            ok_button.clicked.connect(lambda: self.errorclose(windw))
+        if numb == 3:
+            ok_button.clicked.connect(lambda: self.errorclose(windw))
+        if numb == 4:
+            ok_button.clicked.connect(lambda: self.errorclose(windw))
+        if numb == 7:
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+        if numb == 8:
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+        if numb == 5:
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+        if numb == 6:
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+        if numb == 10:
+            ok_button.clicked.connect(lambda: windw.close())
+        if numb == 11:
+            ok_button.clicked.connect(lambda: windw.close())
+        vbox = QVBoxLayout()
+        vbox.addWidget(textbox)
+        vbox.addWidget(ok_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for error window to close itself and open self.raster():
+    def errorclose(self, windw):
+        windw.close()
+        self.raster()
+
+
+    # Function to get mean of raster data, first the selection of vector data:
+    def raster(self):
+        loaded_layers = self.iface.mapCanvas().layers()
+        vector_layers = []
+        for layer in loaded_layers:
+            if layer.type() == QgsMapLayer.VectorLayer:
+                vector_layers.append(layer)
+        loaded_layers = vector_layers
+        if not loaded_layers:
+            self.errorwindow(1, selected_vect_layer_name=None)
+        else:
+            loaded_layers_list = []
+            for lay in loaded_layers:
+                layname = lay.name()
+                loaded_layers_list.append(layname)
+            windw = QWidget()
+            textbox = QListWidget()
+            textbox.addItems(loaded_layers_list)
+            ok_button = QPushButton()
+            ok_button.setText("OK")
+            ok_button.clicked.connect(lambda: self.rastlay(textbox.selectedItems(), windw))
+            vbox = QVBoxLayout()
+            vbox.addWidget(textbox)
+            vbox.addWidget(ok_button)
+            windw.setLayout(vbox)
+            windw.show()
+
+
+    # Function for checking the selected layers name and window for selecting the raster layer:
+    def rastlay(self, selecteditems, windw):
+        windw.close()
+        selected_vect_layer_name = []
+        for item in selecteditems:
+            item = item.text()
+            selected_vect_layer_name.append(item)
+        if not selected_vect_layer_name:
+            self.errorwindow(2, selected_vect_layer_name=None)
+        else:
+            laynumb = int()
+            for layer in selected_vect_layer_name:
+                laynumb = laynumb + 1
+            if laynumb > 1:
+                self.errorwindow(3, selected_vect_layer_name=None)
+            else:
+                selected_vect_layer = QgsProject.instance().mapLayersByName(selected_vect_layer_name[0])[0]
+                loaded_layers = self.iface.mapCanvas().layers()
+                raster_layers = []
+                for layer in loaded_layers:
+                    if layer.type() == QgsMapLayer.RasterLayer:
+                        raster_layers.append(layer)
+                loaded_layers = raster_layers
+                if not loaded_layers:
+                    self.errorwindow(4, selected_vect_layer_name=None)
+                else:
+                    loaded_layers_list = []
+                    for lay in loaded_layers:
+                        layname = lay.name()
+                        loaded_layers_list.append(layname)
+                    windw = QWidget()
+                    textbox = QListWidget()
+                    textbox.addItems(loaded_layers_list)
+                    ok_button = QPushButton()
+                    ok_button.setText("OK")
+                    ok_button.clicked.connect(lambda: self.rasterlaycheck(windw, selected_vect_layer, textbox.selectedItems()))
+                    vbox = QVBoxLayout()
+                    vbox.addWidget(textbox)
+                    vbox.addWidget(ok_button)
+                    windw.setLayout(vbox)
+                    windw.show()
+
+
+    # Function for checking raster layer if it has a unique name:
+    def rasterlaycheck(self, windw, selected_vect_layer, selecteditems):
+        windw.close()
+        selected_rast_layer_name = []
+        for item in selecteditems:
+            item = item.text()
+            selected_rast_layer_name.append(item)
+        if not selected_rast_layer_name:
+            self.errorwindow(7, selected_vect_layer)
+        else:
+            laynumb = int()
+            for layer in selected_rast_layer_name:
+                laynumb = laynumb + 1
+            if laynumb > 1:
+                self.errorwindow(8, selected_vect_layer)
+            else:
+                selected_rast_layer = QgsProject.instance().mapLayersByName(selected_rast_layer_name[0])[0]
+                self.rastertopolygon(selected_vect_layer, selected_rast_layer)
+
+
+    # Function to acquire the information for polygons:
+    def rastertopolygon(self, selected_vect_layer, selected_rast_layer):
+        vect_features = selected_vect_layer.getFeatures()
+        if not vect_features:
+            self.errorwindow(5, selected_vect_layer)
+        else:
+            features = []
+            for feature in vect_features:
+                geom = feature.geometry()
+                if geom.type() == QgsWkbTypes.PolygonGeometry:
+                    features.append(feature)
+            if not features:
+                self.errorwindow(6, selected_vect_layer)
+            else:
+                selected_vect_layer.startEditing()
+                vector_provider = selected_vect_layer.dataProvider()
+                vector_provider.addAttributes([QgsField("Mean of raster", QVariant.Double)])
+                #tempdir = tempfile.TemporaryDirectory()
+                filenumber = 1
+                for feature in features:
+                    #pathtosave = str(tempdir)+'/'+'memory'+str(filenumber)+'.tif'
+                    fid = feature.id()
+                    memory_layer = selected_vect_layer.materialize(QgsFeatureRequest().setFilterFid(fid))
+                    parameters = {'INPUT': selected_rast_layer, 'MASK': memory_layer, 'NO_DATA': 0, 'ALPHA_BAND': False, 'KEEP_RESOLUTION': True, 'OUTPUT': 'memory:cliprasterbymasklayer'}
+                    inter_raster = processing.runAndLoadResults('gdal:cliprasterbymasklayer', parameters)
+                    layers = loaded_layers = self.iface.mapCanvas().layers()
+                    lays = []
+                    for layer in layers:
+                        name = layer.name()
+                        lays.append(name)
+                    boxy = QListWidget()
+                    boxy.addItems(lays)
+                    windw = QWidget()
+                    ok_button = QPushButton()
+                    ok_button.setText("OK")
+                    ok_button.clicked.connect(lambda: windw.close())
+                    vbox = QVBoxLayout()
+                    vbox.addWidget(boxy)
+                    vbox.addWidget(ok_button)
+                    windw.setLayout(vbox)
+                    windw.show()
+                    # rasterlayer = QgsProject().instance().addMapLayer(inter_raster)
+                    #if not rasterlayer.isValid():
+                    #   self.errorwindow(10, selected_vect_layer_name=0)
+                    #provider = rasterlayer.dataProvider()
+                    #raster_extent = provider.extent()
+                    #raster_height = provider.ySize()
+                    #raster_width = provider.xSize()
+                    #block = provider.block(1, raster_extent, raster_width, raster_height)
+                    #pixels = []
+                    #for x in range(raster_width):
+                    #    for y in range(raster_height):
+                    #        value = block.value(x, y)
+                    #        pixels.append(value)
+                    #if len(pixels) > 0:
+                    #    mean_pixels = sum(pixels)/len(pixels)
+                    #else:
+                    #    mean_pixels = 0
+                    #selected_vect_layer.startEditing()
+                    #selected_vect_layer.changeAttributeValue(fid, 0, mean_pixels)
+                    #selected_vect_layer.updateFields()
+                    #selected_vect_layer.commitChanges()
+                    #self.infowindow(selected_vect_layer, selected_rast_layer)
+
+
+    # Window for returning information made by the previous code:
+    def infowindow(self, selected_vect_layer, selected_rast_layer):
+        selected_vect_layer_name = selected_vect_layer.name()
+        selected_rast_layer_name = selected_rast_layer.name()
+        infoline = "The following vector layer was selected: " + selected_vect_layer_name + "\n" + "The following raster layer was selected: " + selected_rast_layer_name
+        averagelist = []
+        attrname = "Mean of raster"
+        idx = selected_vect_layer.fields().indexFromName(attrname)
+        for feature in selected_vect_layer.getFeatures():
+            attr = feature.attributes()[idx]
+            averagelist.append(attr)
+        averagestring = ", ".join(averagelist)
+        infotoappend = infoline + averagestring
+        windw = QWidget()
+        windw.setWindowTitle("Information window")
+        infobox = QTextBrowser()
+        infobox.append(infotoappend)
+        ok_button = QPushButton()
+        ok_button.setText("OK")
+        ok_button.clicked.connect(lambda: windw.show())
+        windw.close()
+
+    # path = inter_raster["OUTPUT"]
+    # rasterlayer = QgsRasterLayer(path, "raster")
+
+
+
+
     def run(self):
         """Run method that performs all the real work"""
+        # Function to get mean of raster data inside polygons:
+        self.dlg.rasterbutton.clicked.connect(lambda: self.raster())
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
