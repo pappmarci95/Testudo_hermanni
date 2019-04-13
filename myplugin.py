@@ -22,8 +22,8 @@
  ***************************************************************************/
 """
 import sys
-#import os
-#import tempfile
+import os
+import tempfile
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget
@@ -646,30 +646,31 @@ class myplugin:
                 selected_vect_layer.startEditing()
                 vector_provider = selected_vect_layer.dataProvider()
                 vector_provider.addAttributes([QgsField("Mean of raster", QVariant.Double)])
-                #tempdir = tempfile.TemporaryDirectory()
+                tempdir = tempfile.TemporaryDirectory()
                 filenumber = 1
                 for feature in features:
-                    #pathtosave = str(tempdir)+'/'+'memory'+str(filenumber)+'.tif'
+                    pathtosave = str(tempdir)+'/'+'memory'+str(filenumber)+'.tif'
                     fid = feature.id()
                     memory_layer = selected_vect_layer.materialize(QgsFeatureRequest().setFilterFid(fid))
-                    parameters = {'INPUT': selected_rast_layer, 'MASK': memory_layer, 'NO_DATA': 0, 'ALPHA_BAND': False, 'KEEP_RESOLUTION': True, 'OUTPUT': 'memory:cliprasterbymasklayer'}
+                    parameters = {'INPUT': selected_rast_layer, 'MASK': selected_vect_layer, 'NO_DATA': 0, 'ALPHA_BAND': False, 'KEEP_RESOLUTION': True, 'OUTPUT': pathtosave}
                     inter_raster = processing.runAndLoadResults('gdal:cliprasterbymasklayer', parameters)
-                    layers = loaded_layers = self.iface.mapCanvas().layers()
-                    lays = []
-                    for layer in layers:
-                        name = layer.name()
-                        lays.append(name)
-                    boxy = QListWidget()
-                    boxy.addItems(lays)
-                    windw = QWidget()
-                    ok_button = QPushButton()
-                    ok_button.setText("OK")
-                    ok_button.clicked.connect(lambda: windw.close())
-                    vbox = QVBoxLayout()
-                    vbox.addWidget(boxy)
-                    vbox.addWidget(ok_button)
-                    windw.setLayout(vbox)
-                    windw.show()
+                    filenumber = filenumber + 1
+                layers = loaded_layers = self.iface.mapCanvas().layers()
+                lays = []
+                for layer in layers:
+                    name = layer.name()
+                    lays.append(name)
+                boxy = QListWidget()
+                boxy.addItems(lays)
+                windw = QWidget()
+                ok_button = QPushButton()
+                ok_button.setText("OK")
+                ok_button.clicked.connect(lambda: windw.close())
+                vbox = QVBoxLayout()
+                vbox.addWidget(boxy)
+                vbox.addWidget(ok_button)
+                windw.setLayout(vbox)
+                windw.show()
                     # rasterlayer = QgsProject().instance().addMapLayer(inter_raster)
                     #if not rasterlayer.isValid():
                     #   self.errorwindow(10, selected_vect_layer_name=0)
