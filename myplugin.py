@@ -26,7 +26,7 @@ import os
 import tempfile
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox
 from random import uniform, sample
 from qgis.core import *
 import processing
@@ -196,63 +196,11 @@ class myplugin:
 
 
 
+    #---------------------------- RANDOM POINT CREATOR -----------------------------------------------------------------
 
 
 
-    def randpointlist(self, layer, pointnumber):
-        lst = []
-        ext = layer.extent()
-        xmax = ext.xMaximum()
-        xmin = ext.xMinimum()
-        ymax = ext.yMaximum()
-        ymin = ext.yMinimum()
-        checkervalue = 0
-        i = 1
-        while i <= int(pointnumber):
-            while True:
-                x_coord = uniform(float(xmin), float(xmax))
-                y_coord = uniform(float(ymin), float(ymax))
-                randomPointGeometry = QgsGeometry.fromPointXY(QgsPointXY(x_coord, y_coord))
-                for polygon in layer.getFeatures():
-                    if polygon.geometry().contains(randomPointGeometry):
-                       checkervalue = 1
-                if checkervalue == 1:
-                    lst.append([x_coord,  y_coord])
-                    checkervalue = 0
-                    break
-                else:
-                    pass
-            i = i+1
-        return lst
-
-
-
-    def createpointlayer(self, nm, lst):
-        layer = QgsVectorLayer("Point", str(nm), "memory")
-        pr = layer.dataProvider()
-        pr.addAttributes([QgsField("number", QVariant.String),
-                          QgsField("x", QVariant.Double),
-                          QgsField("y", QVariant.Double)])
-        layer.updateFields()
-        n = 1
-        for list in lst:
-            fet = QgsFeature()
-            fet.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(list[0], list[1])))
-            fet.setAttributes([str(n), list[0], list[1]])
-            pr.addFeatures([fet])
-            n = n+1
-        layer.updateExtents()
-        return layer
-
-
-
-
-
-
-
-
-
-
+    # Error window for the random point creator:
     def error_window(self, text_error):
         windw = QWidget()
         windw.setWindowTitle("Error Window")
@@ -281,11 +229,12 @@ class myplugin:
         windw.show()
 
 
+    # Error window closing function which reopens the main dialog window:
     def error_window_ok(self, windw):
         windw.close()
         self.run()
 
-
+    # Function for checking whether a value is a number:
     def number_check(self, n):
         try:
             float(n)
@@ -293,13 +242,77 @@ class myplugin:
             return False
 
 
+    # Function for the settings and for the random point creation:
+    def randompointcreator(self):
+        layname = self.dlg.cbox.currentText()
+        layname = str(layname)
+        selected_layer = QgsProject.instance().mapLayersByName(layname)[0]
+        pointnumber = self.dlg.point_number.text()
+        nm = self.dlg.name_widget.text()
+        error_print_text = "The following error(s) occured:"
+        error_1 = "Random point number should be a number"
+        error_2 = "Random point number should be an integer"
+        error_3 = "Random point number must be over zero"
+        error_4 = "A layer must be selected"
+        error_5 = "The selected layer must be a vector layer"
+        precheckvalue = int(0)
+        isnt_number_value = int(0)
+        is_number = self.number_check(pointnumber)
+        if is_number == False:
+            error_print_text = error_print_text + "\n" + error_1
+            precheckvalue = precheckvalue + 1
+            isnt_number_value = isnt_number_value + 1
+        if isnt_number_value == 0:
+            if float(pointnumber) - round(float(pointnumber), 0) != 0:
+                error_print_text = error_print_text + "\n" + error_2
+                precheckvalue = precheckvalue + 1
+            if int(pointnumber) <= 0:
+                error_print_text = error_print_text + "\n" + error_3
+                precheckvalue = precheckvalue + 1
+        if selected_layer is None:
+            error_print_text = error_print_text + "\n" + error_4
+            precheckvalue = precheckvalue + 1
+        if selected_layer.type() != QgsMapLayer.VectorLayer:
+            error_print_text = error_print_text + "\n" + error_5
+            precheckvalue = precheckvalue + 1
+        if precheckvalue != 0:
+            " ".join(error_print_text)
+            self.error_window(error_print_text)
+        else:
+            parameters = {'INPUT': selected_layer, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': int(pointnumber), 'OUTPUT': 'TEMPORARY_OUTPUT'}
+            rand = processing.run('qgis:randompointsinlayerbounds', parameters)
+            randlayer = rand['OUTPUT']
+            randlayer.setName(nm)
+            QgsProject.instance().addMapLayer(randlayer)
 
 
 
 
 
 
+    #------------------------------ RANDOM FEATURES --------------------------------------------------------------------
 
+
+
+    # Error window for random feature:
+    def error_window_features(self, text_error):
+        windw = QWidget()
+        windw.setWindowTitle("Error Window")
+        cancel_button = QPushButton()
+        cancel_button.setText("Cancel")
+        cancel_button.clicked.connect(lambda: windw.close())
+        error_text = QTextBrowser()
+        error_text.append(text_error)
+        vbox = QVBoxLayout()
+        vbox.addWidget(error_text)
+        vbox.addStretch()
+        vbox.addWidget(cancel_button)
+        vbox.addStretch()
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Getting information for random feature selection:
     def random_feature_window(self):
         windw = QWidget()
         windw.setWindowTitle("Random features")
@@ -335,27 +348,14 @@ class myplugin:
         windw.setLayout(vbox)
         windw.show()
 
-    def error_window_features(self, text_error):
-        windw = QWidget()
-        windw.setWindowTitle("Error Window")
-        cancel_button = QPushButton()
-        cancel_button.setText("Cancel")
-        cancel_button.clicked.connect(lambda: windw.close())
-        error_text = QTextBrowser()
-        error_text.append(text_error)
-        vbox = QVBoxLayout()
-        vbox.addWidget(error_text)
-        vbox.addStretch()
-        vbox.addWidget(cancel_button)
-        vbox.addStretch()
-        windw.setLayout(vbox)
-        windw.show()
 
-
+    # Function to get the features:
     def rand_features(self, numb, text):
         text.clear()
         numb = numb.text()
-        lay = self.iface.activeLayer()
+        layname = self.dlg.cbox.currentText()
+        layname = str(layname)
+        lay = QgsProject.instance().mapLayersByName(layname)[0]
         error_text = "The following error(s) occured:"
         error_1 = "A layer must be selected"
         error_2 = "The selected layer should have features"
@@ -430,50 +430,7 @@ class myplugin:
 
 
 
-
-
-
-    def randompointcreator(self):
-        selected_layer = self.iface.activeLayer()
-        pointnumber = self.dlg.point_number.text()
-        nm = self.dlg.name_widget.text()
-        error_print_text = "The following error(s) occured"
-        error_1 = "Random point number should be a number"
-        error_2 = "Random point number should be an integer"
-        error_3 = "Random point number must be over zero"
-        error_4 = "A layer should be selected"
-        precheckvalue = int()
-        isnt_number_value = int()
-        is_number = self.number_check(pointnumber)
-        if is_number == False:
-            error_print_text = error_print_text + "\n" + error_1
-            precheckvalue = precheckvalue + 1
-            isnt_number_value = isnt_number_value + 1
-        if isnt_number_value == 0:
-            if float(pointnumber)-round(float(pointnumber), 0) != 0:
-                error_print_text = error_print_text + "\n" + error_2
-                precheckvalue = precheckvalue + 1
-            if int(pointnumber) <= 0:
-                error_print_text = error_print_text + "\n" + error_3
-                precheckvalue = precheckvalue + 1
-        if selected_layer is None:
-            error_print_text = error_print_text + "\n" + error_4
-            precheckvalue = precheckvalue + 1
-        if precheckvalue != 0:
-            " ".join(error_print_text)
-            self.error_window(error_print_text)
-        else:
-            lst = self.randpointlist(selected_layer, pointnumber)
-            random_layer = self.createpointlayer(nm, lst)
-            QgsProject.instance().addMapLayer(random_layer)
-
-
-
-
-
-
-
-
+    #---------------------------- RASTER LAYER AVERAGING INSIDE POLYGONS -----------------------------------------------
 
 
 
@@ -484,8 +441,6 @@ class myplugin:
             text = "There should be a vector layer loaded"
         if numb == 2:
             text = "A layer must be selected"
-        if numb == 3:
-            text = "The layer should have a unique name"
         if numb == 4:
             text = "There should be a raster layer loaded"
         if numb == 5:
@@ -494,12 +449,10 @@ class myplugin:
             text = "There should be a polygon feature among features"
         if numb == 7:
             text = "A layer must be selected"
-        if numb == 8:
-            text = "The layer should have a unique name"
         if numb == 9:
-            text = "The number of the attribute should be above zero"
+            text = "One attribute should be selected"
         if numb == 10:
-            text = "The number of the attribute should be below the number of attributes"
+            text = "The number of the attribute selected should be below or equal to the number of attributes the layer have"
         windw = QWidget()
         windw.setWindowTitle("Error window")
         textbox = QTextBrowser()
@@ -510,20 +463,16 @@ class myplugin:
             ok_button.clicked.connect(lambda: windw.close())
         if numb == 2:
             ok_button.clicked.connect(lambda: self.errorclose(windw))
-        if numb == 3:
-            ok_button.clicked.connect(lambda: self.errorclose(windw))
         if numb == 4:
             ok_button.clicked.connect(lambda: self.errorclose(windw))
         if numb == 7:
-            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
-        if numb == 8:
             ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
         if numb == 5:
             ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
         if numb == 6:
             ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
         if numb == 9:
-            ok_button.clicked.connect(lambda: windw.close())
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
         if numb == 10:
             ok_button.clicked.connect(lambda: windw.close())
         vbox = QVBoxLayout()
@@ -539,13 +488,8 @@ class myplugin:
         self.raster()
 
 
-    # Function to get mean of raster data, first the selection of vector data, and checking wether the attribute number
-    # is above zero:
+    # Function to get mean of raster data, first the selection of vector data:
     def raster(self):
-        attrnumb = self.dlg.attrnumb.text()
-        attrnumb = int(attrnumb)
-        if attrnumb <= 0:
-            self.errorwindow(9, selected_vect_layer_name=None)
         loaded_layers = self.iface.mapCanvas().layers()
         vector_layers = []
         for layer in loaded_layers:
@@ -560,20 +504,24 @@ class myplugin:
                 layname = lay.name()
                 loaded_layers_list.append(layname)
             windw = QWidget()
+            windw.setWindowTitle("Vector layer selection")
+            label = QLabel()
+            label.setText("Vector layer selection:")
             textbox = QListWidget()
             textbox.addItems(loaded_layers_list)
             ok_button = QPushButton()
             ok_button.setText("OK")
             ok_button.clicked.connect(lambda: self.rastlay(textbox.selectedItems(), windw))
             vbox = QVBoxLayout()
+            vbox.addWidget(label)
             vbox.addWidget(textbox)
             vbox.addWidget(ok_button)
             windw.setLayout(vbox)
             windw.show()
 
 
-    # Function for checking the selected layers name and window for selecting the raster layer, and checking wether
-    # the attribute number is below the number of attributes:
+    # Function for checking the selected layers name and window for selecting the raster layer, and selecting the attribute
+    # to save the raster averages:
     def rastlay(self, selecteditems, windw):
         windw.close()
         selected_vect_layer_name = []
@@ -583,47 +531,54 @@ class myplugin:
         if not selected_vect_layer_name:
             self.errorwindow(2, selected_vect_layer_name=None)
         else:
-            laynumb = int()
-            for layer in selected_vect_layer_name:
-                laynumb = laynumb + 1
-            if laynumb > 1:
-                self.errorwindow(3, selected_vect_layer_name=None)
+            selected_vect_layer = QgsProject.instance().mapLayersByName(selected_vect_layer_name[0])[0]
+            vectlayattrs = []
+            for field in selected_vect_layer.fields():
+                vectlayattrs.append(field.name())
+            loaded_layers = self.iface.mapCanvas().layers()
+            raster_layers = []
+            for layer in loaded_layers:
+                if layer.type() == QgsMapLayer.RasterLayer:
+                    raster_layers.append(layer)
+            loaded_layers = raster_layers
+            if not loaded_layers:
+                self.errorwindow(4, selected_vect_layer_name=None)
             else:
-                selected_vect_layer = QgsProject.instance().mapLayersByName(selected_vect_layer_name[0])[0]
-                numberofattrs = selected_vect_layer.fields().size()
-                attrnumb = self.dlg.attrnumb.text()
-                attrnumb = int(attrnumb)
-                if attrnumb >= numberofattrs:
-                    self.errorwindow(10, selected_vect_layer_name=None)
-                loaded_layers = self.iface.mapCanvas().layers()
-                raster_layers = []
-                for layer in loaded_layers:
-                    if layer.type() == QgsMapLayer.RasterLayer:
-                        raster_layers.append(layer)
-                loaded_layers = raster_layers
-                if not loaded_layers:
-                    self.errorwindow(4, selected_vect_layer_name=None)
-                else:
-                    loaded_layers_list = []
-                    for lay in loaded_layers:
-                        layname = lay.name()
-                        loaded_layers_list.append(layname)
-                    windw = QWidget()
-                    textbox = QListWidget()
-                    textbox.addItems(loaded_layers_list)
-                    ok_button = QPushButton()
-                    ok_button.setText("OK")
-                    ok_button.clicked.connect(lambda: self.rasterlaycheck(windw, selected_vect_layer, textbox.selectedItems()))
-                    vbox = QVBoxLayout()
-                    vbox.addWidget(textbox)
-                    vbox.addWidget(ok_button)
-                    windw.setLayout(vbox)
-                    windw.show()
+                loaded_layers_list = []
+                for lay in loaded_layers:
+                    layname = lay.name()
+                    loaded_layers_list.append(layname)
+                windw = QWidget()
+                windw.setWindowTitle("Raster layer and attribute selection")
+                label1 = QLabel()
+                label1.setText("Raster layer selection:")
+                label2 = QLabel()
+                label2.setText("Attribute selection:")
+                textbox = QListWidget()
+                textbox.addItems(loaded_layers_list)
+                list = QComboBox()
+                list.clear()
+                list.addItems(vectlayattrs)
+                ok_button = QPushButton()
+                ok_button.setText("OK")
+                ok_button.clicked.connect(lambda: self.rasterlaycheck(windw, selected_vect_layer, textbox.selectedItems(), list.currentText()))
+                vbox = QVBoxLayout()
+                vbox.addWidget(label1)
+                vbox.addWidget(textbox)
+                vbox.addWidget(label2)
+                vbox.addWidget(list)
+                vbox.addWidget(ok_button)
+                windw.setLayout(vbox)
+                windw.show()
 
 
-    # Function for checking raster layer if it has a unique name:
-    def rasterlaycheck(self, windw, selected_vect_layer, selecteditems):
+    # Function for checking raster layer if it has a unique name and getting the selected attributes index:
+    def rasterlaycheck(self, windw, selected_vect_layer, selecteditems, selecteditems2):
         windw.close()
+        attrname = str(selecteditems2)
+        if not attrname:
+            self.errorwindow(9, selected_vect_layer)
+        attrindex = selected_vect_layer.fields().indexFromName(attrname)
         selected_rast_layer_name = []
         for item in selecteditems:
             item = item.text()
@@ -631,21 +586,13 @@ class myplugin:
         if not selected_rast_layer_name:
             self.errorwindow(7, selected_vect_layer)
         else:
-            laynumb = int()
-            for layer in selected_rast_layer_name:
-                laynumb = laynumb + 1
-            if laynumb > 1:
-                self.errorwindow(8, selected_vect_layer)
-            else:
-                selected_rast_layer = QgsProject.instance().mapLayersByName(selected_rast_layer_name[0])[0]
-                self.rastertopolygon(selected_vect_layer, selected_rast_layer)
+            selected_rast_layer = QgsProject.instance().mapLayersByName(selected_rast_layer_name[0])[0]
+            self.rastertopolygon(selected_vect_layer, selected_rast_layer, attrindex)
 
 
     # Function to acquire the information for polygons and doing the averaging:
-    def rastertopolygon(self, selected_vect_layer, selected_rast_layer):
-        attrnumb = self.dlg.attrnumb.text()
-        attrtofill = int(attrnumb) - 1
-        attrtofill = int(attrtofill)
+    def rastertopolygon(self, selected_vect_layer, selected_rast_layer, attrnumb):
+        attrtofill = int(attrnumb)
         vect_features = selected_vect_layer.getFeatures()
         if not vect_features:
             self.errorwindow(5, selected_vect_layer)
@@ -679,17 +626,16 @@ class myplugin:
                 selected_vect_layer.commitChanges()
                 zonestat = QgsZonalStatistics(selected_vect_layer, selected_rast_layer, 'rast-', 1, QgsZonalStatistics.Mean)
                 zonestat.calculateStatistics(None)
-                self.infowindow(selected_vect_layer, selected_rast_layer)
+                self.infowindow(selected_vect_layer, selected_rast_layer, attrtofill)
 
 
     # Window for returning information made by the previous code:
-    def infowindow(self, selected_vect_layer, selected_rast_layer):
+    def infowindow(self, selected_vect_layer, selected_rast_layer, attrnumb):
         selected_vect_layer_name = selected_vect_layer.name()
         selected_rast_layer_name = selected_rast_layer.name()
-        attrnumb = self.dlg.attrnumb.text()
-        index = int(attrnumb) - 1
+        index = str(attrnumb)
+        attrnumb = int(attrnumb) + 1
         attrnumb = str(attrnumb)
-        index = str(index)
         infoline = "The following vector layer was selected: " + selected_vect_layer_name + "\n" + "The following raster layer was selected: " + selected_rast_layer_name + "\n" + "The follofwing attrubte was selelcted: " + attrnumb + " [index: " + index + "]"
         windw = QWidget()
         windw.setWindowTitle("Information window")
@@ -707,8 +653,22 @@ class myplugin:
 
 
 
+
+
+    #------------------------- CREATING THE DIALOG WINDOW --------------------------------------------------------------
+
+
+
     def run(self):
         """Run method that performs all the real work"""
+        # Setting for the QComboBox named cbox:
+        self.dlg.cbox.clear()
+        loaded_layers = self.iface.mapCanvas().layers()
+        layernames = []
+        for lay in loaded_layers:
+            name = lay.name()
+            layernames.append(name)
+        self.dlg.cbox.addItems(layernames)
         # Function to get mean of raster data inside polygons:
         self.dlg.rasterbutton.clicked.connect(lambda: self.raster())
         # show the dialog
