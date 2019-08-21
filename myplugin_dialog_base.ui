@@ -78,8 +78,8 @@
   <widget class="QLabel" name="label_3">
    <property name="geometry">
     <rect>
-     <x>60</x>
-     <y>260</y>
+     <x>40</x>
+     <y>320</y>
      <width>131</width>
      <height>31</height>
     </rect>
@@ -91,8 +91,8 @@
   <widget class="QPushButton" name="get_random">
    <property name="geometry">
     <rect>
-     <x>200</x>
-     <y>260</y>
+     <x>180</x>
+     <y>320</y>
      <width>71</width>
      <height>31</height>
     </rect>
@@ -104,8 +104,8 @@
   <widget class="QLabel" name="label_4">
    <property name="geometry">
     <rect>
-     <x>50</x>
-     <y>280</y>
+     <x>30</x>
+     <y>340</y>
      <width>151</width>
      <height>41</height>
     </rect>
@@ -117,8 +117,8 @@
   <widget class="QPushButton" name="rasterbutton">
    <property name="geometry">
     <rect>
-     <x>200</x>
-     <y>290</y>
+     <x>180</x>
+     <y>350</y>
      <width>71</width>
      <height>31</height>
     </rect>
@@ -174,6 +174,45 @@
    </property>
    <property name="text">
     <string>Name of the layer for the points</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_8">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>200</y>
+     <width>451</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>GRTS Sampling (Please note that after executing the sampling settings </string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="samplingbutton">
+   <property name="geometry">
+    <rect>
+     <x>160</x>
+     <y>230</y>
+     <width>101</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>SAMPLING</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_9">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>235</y>
+     <width>151</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="text">
+    <string>this window will close!):</string>
    </property>
   </widget>
  </widget>

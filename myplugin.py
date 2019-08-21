@@ -26,11 +26,14 @@ import os
 import tempfile
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox
-from random import uniform, sample
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox, QRadioButton
+from random import uniform, sample, randint, shuffle
 from qgis.core import *
 import processing
 from qgis.analysis import QgsZonalStatistics
+# from iteration_utilities import deepflatten
+import math
+import collections
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -655,8 +658,539 @@ class myplugin:
 
 
 
-    #------------------------- CREATING THE DIALOG WINDOW --------------------------------------------------------------
+    #----------------------------------GRTS METHOD APPLICATION----------------------------------------------------------------
 
+
+    # Generator function to flatten multiple nested lists:
+    def flatten(self, l):
+        for el in l:
+            if isinstance(el, collections.abc.Iterable) and not isinstance(el, (str, bytes)):
+                yield from self.flatten(el)
+            else:
+                yield el
+
+
+    # Error window for grid settings:
+    def errorforquadr(self, error_text):
+        windw = QWidget()
+        windw.setWindowTitle("Error Window")
+        label = QLabel("The following error(s) occured (Please press OK to go back to the settings window):")
+        text = QTextBrowser()
+        text.append(error_text)
+        ok_button = QPushButton()
+        ok_button.setText("OK")
+        ok_button.clicked.connect(lambda: self.error_ok(windw))
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(text)
+        vbox.addStretch(3)
+        vbox.addWidget(ok_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function that closes the error window and opens the sampling settings window again:
+    def error_ok(self, windw):
+        windw.close()
+        self.samplinglayer()
+
+
+    # Checking if the number is an integer:
+    def integer_check(self, n, isintvalue):
+        notintvalue = 0
+        try:
+            float(n)
+        except ValueError:
+            notintvalue = notintvalue + 1
+        if notintvalue == 0:
+            if float(n) - round(float(n), 0) != 0:
+                notintvalue = notintvalue + 1
+        if notintvalue != 0:
+            isintvalue = isintvalue + 1
+
+
+    # Window for layer selection:
+    def samplinglayer(self):
+        windw = QWidget()
+        windw.setWindowTitle("GRTS SAMPLING SETTINGS")
+        text0 = QLabel("Please select the vector layer you want to use for sampling:")
+        cbox = QComboBox()
+        cbox.clear()
+        loaded_layers = self.iface.mapCanvas().layers()
+        vector_layers = []
+        for layer in loaded_layers:
+            if layer.type() == QgsMapLayer.VectorLayer:
+                vector_layers.append(layer)
+        loaded_layers = vector_layers
+        loaded_layers_name = []
+        for layer in loaded_layers:
+            name = layer.name()
+            loaded_layers_name.append(name)
+        cbox.addItems(loaded_layers_name)
+        text1 = QLabel("Please enter the number of samples:")
+        numb = QLineEdit()
+        text3 = QLabel("Please enter the power of four you'd like to use for grid placement(only available when custom grid number is selected):")
+        custom_quadr = QLineEdit()
+        custom_quadr.setEnabled(False)
+        text2 = QLabel("If you would like to give the number of grid cells used for sampling, please select the correct option:")
+        label1 = QLabel("Default grid number:")
+        label2 = QLabel("Custom grid number:")
+        quadrchecker = 1
+        button_def = QRadioButton()
+        button_def.setChecked(True)
+        button_def.toggled.connect(lambda: self.deftoggled(quadrchecker, custom_quadr))
+        button_custom = QRadioButton()
+        button_custom.toggled.connect(lambda: self.customtoggled(quadrchecker, custom_quadr))
+        okbutton = QPushButton()
+        okbutton.setText("OK")
+        okbutton.clicked.connect(lambda: self.gridplacement(cbox.currentText(), numb.text(), custom_quadr.text(), quadrchecker, windw))
+        cancelbutton = QPushButton()
+        cancelbutton.setText("CANCEL")
+        cancelbutton.clicked.connect(lambda: windw.close())
+        hbox1 = QHBoxLayout()
+        hbox1.addStretch()
+        hbox1.addWidget(text0)
+        hbox1.addStretch(5)
+        hbox2 = QHBoxLayout()
+        hbox2.addStretch()
+        hbox2.addWidget(cbox)
+        hbox2.addStretch(4)
+        hbox3 = QHBoxLayout()
+        hbox3.addStretch()
+        hbox3.addWidget(text1)
+        hbox3.addStretch(1)
+        hbox3.addWidget(numb)
+        hbox3.addStretch(15)
+        hbox4 = QHBoxLayout()
+        hbox4.addStretch(0)
+        hbox4.addWidget(text2)
+        hbox4.addStretch(2)
+        hbox5 = QHBoxLayout()
+        hbox5.addStretch()
+        hbox5.addWidget(label1)
+        hbox5.addStretch(1)
+        hbox5.addWidget(button_def)
+        hbox5.addStretch(10)
+        hbox5.addWidget(label2)
+        hbox5.addStretch(1)
+        hbox5.addWidget(button_custom)
+        hbox5.addStretch(10)
+        hbox6 = QHBoxLayout()
+        hbox6.addStretch()
+        hbox6.addWidget(text3)
+        hbox6.addStretch(1)
+        hbox6.addWidget(custom_quadr)
+        hbox6.addStretch(2)
+        hbox7 = QHBoxLayout()
+        hbox7.addStretch(5)
+        hbox7.addWidget(okbutton)
+        hbox7.addStretch(2)
+        hbox7.addWidget(cancelbutton)
+        hbox7.addStretch(5)
+        vbox = QVBoxLayout()
+        vbox.addStretch(2)
+        vbox.addLayout(hbox1)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox2)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox3)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox4)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox5)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox6)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox7)
+        vbox.addStretch(2)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for using default quadrant ammount:
+    def deftoggled(self, quadrchecker, custom_quadr):
+        quadrchecker = 1
+        custom_quadr.setEnabled(False)
+
+
+    # Function for using custom quadrant ammount:
+    def customtoggled(self, quadrchecker, custom_quadr):
+        quadrchecker = 2
+        custom_quadr.setEnabled(True)
+
+
+    # Grid placement on the layer:
+    def gridplacement(self, layer, samp_number, custom, quadrchecker, windw):
+        windw.close()
+        erro_text = []
+        is_error = 0
+        if layer is None:
+            erro_text.append("A layer should be selected")
+            is_error = is_error + 1
+        isintvalue = 0
+        self.integer_check(samp_number, isintvalue)
+        if isintvalue != 0:
+            erro_text.append("The sample number must be an integer")
+            is_error = is_error + 1
+        else:
+            if int(samp_number) < 0:
+                erro_text.append("The number of desired samples must be over zero")
+                is_error = is_error + 1
+        if quadrchecker == 1:
+            cellgen = int(math.ceil(math.log(int(samp_number), 4) + 2))
+            cellnumb = 4**cellgen
+        if quadrchecker == 2:
+            customisint = 0
+            self.integer_check(custom, customisint)
+            if customisint != 0:
+                erro_text.append("The custom power of four must be a number")
+                is_error = is_error + 1
+            else:
+                if custom < 0:
+                    erro_text.append("The custom power of four must be over zero")
+                    is_error = is_error + 1
+                else:
+                    cellgen = int(math.ceil(math.log(int(samp_number), 4) + 2))
+                    if cellgen > custom:
+                        erro_text.append("If custom quadrant number is selected, the power of 4 should be higher than the default(base 4 logarithm of the selected sample numbers plus 2)")
+                        is_error = is_error + 1
+                    if custom >= cellgen:
+                        cellgen = custom
+                        cellnumb = 4**cellgen
+        if is_error != 0:
+            self.errorforquadr(erro_text)
+        else:
+            layer = QgsProject.instance().mapLayersByName(layer)[0]
+            layextent = layer.extent()
+            xextentmax = layextent.xMaximum()
+            xextentmin = layextent.xMinimum()
+            yextentmax = layextent.yMaximum()
+            yextentmin = layextent.yMinimum()
+            xextentmax = float(xextentmax)
+            xextentmin = float(xextentmin)
+            yextentmax = float(yextentmax)
+            yextentmin = float(yextentmin)
+            xrange = xextentmax - xextentmin
+            yrange = yextentmax - yextentmin
+            basenumb = int()
+            if xrange > yrange:
+                basenumb = 1
+            if yrange > xrange:
+                basenumb = 2
+            if basenumb == 1:
+                rangedif = xrange - yrange
+                rangeadd = rangedif / 2
+                yextentmax = yextentmax + rangeadd
+                yextentmin = yextentmin - rangeadd
+                xextentmax = xextentmax
+                xextentmin = xextentmin
+            if basenumb == 2:
+                rangedif = yrange - xrange
+                rangeadd = rangedif / 2
+                xextentmax = xextentmax + rangeadd
+                xextentmin = xextentmin - rangeadd
+                yextentmax = yextentmax
+                yextentmin = yextentmin
+            cellx = (xextentmax-xextentmin) / (2**cellgen)
+            celly = (yextentmax-yextentmin) / (2**cellgen)
+            addx = (cellx * (2**cellgen)) / ((2**cellgen) - 1)
+            addy = addx
+            xextentmax = xextentmax + addx
+            yextentmax = yextentmax + addy
+            randfractx = round(uniform(1, 100), 1)
+            randfracty = round(uniform(1, 100), 1)
+            addx1 = addx / randfractx
+            addx2 = addx - addx1
+            addy1 = addy / randfracty
+            addy2 = addy - addy1
+            randnumbx = randint(1, 2)
+            randnumby = randint(1, 2)
+            if randnumbx == 1:
+                xextentmax = xextentmax + addx1
+                xextentmin = xextentmin - addx2
+            if randnumbx == 2:
+                xextentmax = xextentmax + addx2
+                xextentmin = xextentmin - addx1
+            if randnumby == 1:
+                yextentmax = yextentmax + addy1
+                yextentmin = yextentmin - addy2
+            if randnumby == 2:
+                yextentmax = yextentmax + addy2
+                yextentmin = yextentmin - addy1
+            cellx = (xextentmax - xextentmin) / (2**cellgen)
+            celly = (yextentmax - yextentmin) / (2**cellgen)
+            extent = str(xextentmin) + ',' + str(xextentmax) + ',' + str(yextentmin) + ',' + str(yextentmax)
+            crs = layer.crs()
+            parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,'OUTPUT': 'TEMPORARY_OUTPUT'}
+            grid = processing.run('qgis:creategrid', parameters)
+            gridlay = grid['OUTPUT']
+            self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number)
+
+
+    # Creating the order of cell IDs to match the here created hierarchical order of cell serial numbers:
+    def gridorder(self, cellgen, cellnumb, layer, gridlayer, samp_numb):
+        numblist = []
+        for i in range(1, (cellnumb + 1)):
+            numblist.append(i)
+        initlist = []
+        for i in range(1, (2**cellgen + 1), 2):
+            for x in range(1, (2**cellgen + 1), 2):
+                number = numblist[i + ((x - 1) * (2**cellgen)) - 1]
+                initlist.append(number)
+        newlist = []
+        for i in initlist:
+            listquadr = [numblist[i-1], numblist[i + (2**cellgen) - 1], numblist[i], numblist[i + (2**cellgen)]]
+            newlist.append(listquadr)
+        numblist = newlist
+        if cellgen > 2:
+            for i in range(1, (cellgen - 1)):
+                usedlist = []
+                newlist = []
+                for x in range(len(numblist)):
+                    if numblist[x] not in usedlist:
+                        listquadr = [numblist[x], numblist[x + 1], numblist[x + (2**(cellgen - i))], numblist[x + (2**(cellgen - i)) + 1]]
+                        newlist.append(listquadr)
+                        usedlist.append(numblist[x])
+                        usedlist.append(numblist[x + 1])
+                        usedlist.append(numblist[x + (2**(cellgen - i))])
+                        usedlist.append(numblist[x + (2**(cellgen - i)) + 1])
+                numblist = newlist
+        numblist = list(self.flatten(numblist))
+        orderlist = [1, 2, 3, 4]
+        shuffle(orderlist)
+        for i in range(1, cellgen):
+            newlist = list()
+            for x in orderlist:
+                randperm = [1, 2, 3, 4]
+                shuffle(randperm)
+                for y in randperm:
+                    elem = str(x) + str(y)
+                    newlist.append(elem)
+            orderlist = newlist
+        orderlist = list(map(int, orderlist))
+        gridfeatures = gridlayer.getFeatures()
+        attrindex = gridlayer.fields().indexFromName("id")
+        gridlayer.startEditing()
+        for feat in gridfeatures:
+            attrs = feat.attributes()
+            idnumb = attrs[attrindex]
+            indofid = numblist.index(idnumb)
+            ordnumb = orderlist[indofid]
+            gridlayer.changeAttributeValue(feat.id(), attrindex, ordnumb)
+        gridlayer.commitChanges()
+        self.samplepool(gridlayer, layer, samp_numb)
+
+
+    # Function for sample pool creation:
+    def samplepool(self, gridlayer, layer, samp_numb):
+        params = {'INPUT': gridlayer, 'OVERLAY': layer, 'OUTPUT': 'TEMPORARY_OUTPUT'}
+        cutted = processing.run('native:clip', params)
+        cuttedlayer = cutted['OUTPUT']
+        sample_order_pool = []
+        origcrs = layer.crs().authid()
+        pool_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "sample_points", "memory")
+        pr = pool_layer.dataProvider()
+        pool_layer.startEditing()
+        pr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
+        pool_layer.updateFields()
+        QgsProject.instance().addMapLayer(pool_layer)
+        cuttedfeatures = cuttedlayer.getFeatures()
+        for feat in cuttedfeatures:
+           fid = feat.id()
+           memory_cutted_grid = cuttedlayer.materialize(QgsFeatureRequest().setFilterFid(fid))
+           parameters = {'INPUT': memory_cutted_grid, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': 1, 'OUTPUT': 'TEMPORARY_OUTPUT'}
+           rand = processing.run('qgis:randompointsinlayerbounds', parameters)
+           randlayer = rand['OUTPUT']
+           rand_features = randlayer.getFeatures()
+           attrindex = cuttedlayer.fields().indexFromName("id")
+           fattr = feat.attributes()
+           feat_order = fattr[attrindex]
+           serial = 1
+           for randfeat in rand_features:
+               randgeom = randfeat.geometry()
+               fet = QgsFeature()
+               fet.setGeometry(randgeom)
+               fet.setAttributes([str(feat_order), str(serial), str(randgeom.asPoint()[0]), str(randgeom.asPoint()[1])])
+               pr.addFeatures([fet])
+               serial = serial + 1
+           pool_layer.updateExtents()
+           sample_order_pool.append(feat_order)
+        self.sampleselection(sample_order_pool, pool_layer, samp_numb, gridlayer, cuttedlayer)
+
+
+    # Function for sampling:
+    def sampleselection(self, sample_order_pool, pool_layer, samp_numb, gridlayer, cuttedlayer):
+        sample_order_pool.sort()
+        sample_pool = []
+        i = 0
+        for ordernumber in sample_order_pool:
+            rangelist = [ordernumber]
+            rng = [*range(i, (i + 50))]
+            rangelist.append(rng)
+            sample_pool.append(rangelist)
+            i = i + 50
+        recent_elem = randint(1, (i - 1))
+        line_numbers = [recent_elem]
+        line_step = (i - 1) / int(samp_numb)
+        for y in range(1, int(samp_numb)):
+            line_numb = recent_elem + line_step
+            if line_numb <= (i - 1):
+                line_numb = math.trunc(line_numb)
+                line_numbers.append(line_numb)
+                recent_elem = line_numb
+            else:
+                line_numb = line_numb - (i - 1)
+                line_numb = math.trunc(line_numb)
+                line_numbers.append(line_numb)
+                recent_elem = line_numb
+        samples = []
+        for elem in sample_pool:
+            x = 0
+            for numb in line_numbers:
+                if numb in elem[1]:
+                    samples.append(elem[0])
+                    del line_numbers[x]
+                else:
+                    x = x + 1
+        self.getsample(pool_layer, samples, gridlayer, cuttedlayer)
+
+
+    # Function for getting the previously selected samples:
+    def getsample(self, pool_layer, samples, gridlayer, cuttedlayer):
+        pool_layer.selectAll()
+        parameters = {'INPUT': pool_layer, 'OUTPUT': 'memory:'}
+        pool_layer_original = processing.run("native:saveselectedfeatures", parameters)['OUTPUT']
+        pool_layer.removeSelection()
+        poolfeatures = pool_layer.getFeatures()
+        idindex = pool_layer.fields().indexFromName("Order_number")
+        for feat in poolfeatures:
+            featattributes = feat.attributes()
+            featid = featattributes[idindex]
+            featid = int(featid)
+            if featid in samples:
+                pass
+            else:
+                fid = feat.id()
+                pool_layer.deleteFeature(fid)
+        self.dlg.close()
+        self.openlays(gridlayer, cuttedlayer, pool_layer_original)
+
+
+    # Function for loading intermedier layers:
+    def openlays(self, gridlayer, cuttedlayer, pool_layer_original):
+        gridlayer.setName("memory_grid")
+        cuttedlayer.setName("cutted_grid_layer")
+        pool_layer_original.setName("random_point_pool")
+        windw = QWidget()
+        windw.setWindowTitle("Intermedier layers")
+        label0 = QLabel("Window for loading the intermedier layers used by the program. It is only available for the development phase!")
+        label1 = QLabel('For loading the grid layer press "GRID" button:')
+        button1 = QPushButton("GRID")
+        button1.clicked.connect(lambda: self.loadgrid(gridlayer))
+        label2 = QLabel('For loading the cutted grid layer press "CUTTED" button:')
+        button2 = QPushButton("CUTTED")
+        button2.clicked.connect(lambda: self.loadcutted(cuttedlayer))
+        label3 = QLabel('For loading the random point pool press "POOL" button:')
+        button3 = QPushButton("POOL")
+        button3.clicked.connect(lambda: self.loadpool(pool_layer_original))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox1 = QHBoxLayout()
+        hbox1.addStretch(2)
+        hbox1.addWidget(label1)
+        hbox1.addWidget(button1)
+        hbox1.addStretch(2)
+        hbox2 = QHBoxLayout()
+        hbox2.addStretch(2)
+        hbox2.addWidget(label2)
+        hbox2.addWidget(button2)
+        hbox2.addStretch(2)
+        hbox3 = QHBoxLayout()
+        hbox3.addStretch(2)
+        hbox3.addWidget(label3)
+        hbox3.addWidget(button3)
+        hbox3.addStretch(2)
+        hbox4 = QHBoxLayout()
+        hbox4.addStretch(6)
+        hbox4.addWidget(cancel_button)
+        hbox4.addStretch(6)
+        vbox = QVBoxLayout()
+        vbox.addStretch(2)
+        vbox.addWidget(label0)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox1)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox2)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox3)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox4)
+        vbox.addStretch(2)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for loading the grid layer:
+    def loadgrid(self, gridlayer):
+        layers = QgsProject.instance().mapLayers().values()
+        loadedvalue = 0
+        for lay in layers:
+            if lay.name() == "memory_grid":
+                loadedvalue = loadedvalue + 1
+        if loadedvalue != 0:
+            self.alreadyloaded()
+        else:
+            QgsProject.instance().addMapLayer(gridlayer)
+
+
+    # Function for loading the cutted grid layer:
+    def loadcutted(self, cuttedlayer):
+        layers = QgsProject.instance().mapLayers().values()
+        loadedvalue = 0
+        for lay in layers:
+            if lay.name() == "cutted_grid_layer":
+                loadedvalue = loadedvalue + 1
+        if loadedvalue != 0:
+            self.alreadyloaded()
+        else:
+            QgsProject.instance().addMapLayer(cuttedlayer)
+
+
+    # Function for loading the random pool layer:
+    def loadpool(self, pool_layer_original):
+        layers = QgsProject.instance().mapLayers().values()
+        loadedvalue = 0
+        for lay in layers:
+            if lay.name() == "random_point_pool":
+                loadedvalue = loadedvalue + 1
+        if loadedvalue != 0:
+            self.alreadyloaded()
+        else:
+            QgsProject.instance().addMapLayer(pool_layer_original)
+
+
+    # Function for the window if a layer is already loaded:
+    def alreadyloaded(self):
+        windw = QWidget()
+        windw.setWindowTitle("ERROR WINDOW")
+        label0 = QLabel("The selected layer is already loaded!")
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addStretch(6)
+        hbox.addWidget(cancel_button)
+        hbox.addStretch(6)
+        vbox = QVBoxLayout()
+        vbox.addStretch(2)
+        vbox.addWidget(label0)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox)
+        vbox.addStretch(2)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    #--------------------------- CREATING THE DIALOG WINDOW --------------------------------------------------------------
 
 
     def run(self):
@@ -671,6 +1205,8 @@ class myplugin:
         self.dlg.cbox.addItems(layernames)
         # Function to get mean of raster data inside polygons:
         self.dlg.rasterbutton.clicked.connect(lambda: self.raster())
+        #Connecting the button sampling layer selection:
+        self.dlg.samplingbutton.clicked.connect(lambda: self.samplinglayer())
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
