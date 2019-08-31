@@ -34,6 +34,10 @@ from qgis.analysis import QgsZonalStatistics
 # from iteration_utilities import deepflatten
 import math
 import collections
+import copy
+import time
+from decimal import *
+
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -689,6 +693,20 @@ class myplugin:
         windw.show()
 
 
+    # Function for the error window if the while loop is longer than it should:
+    def error_while(self):
+        windw = QWidget()
+        windw.setWindowTitle("ERROR WINDOW")
+        label = QLabel("The polygon ID field generation lasted longer than it should! Please check the amount of fields with name grts_id and a number!")
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(cancel_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
     # Function that closes the error window and opens the sampling settings window again:
     def error_ok(self, windw):
         windw.close()
@@ -921,7 +939,7 @@ class myplugin:
             celly = (yextentmax - yextentmin) / (2**cellgen)
             extent = str(xextentmin) + ',' + str(xextentmax) + ',' + str(yextentmin) + ',' + str(yextentmax)
             crs = layer.crs()
-            parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,'OUTPUT': 'TEMPORARY_OUTPUT'}
+            parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,'OUTPUT': 'memory: ', 'HOVERLAY': 0, 'VOVERLAY': 0}
             grid = processing.run('qgis:creategrid', parameters)
             gridlay = grid['OUTPUT']
             self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number)
@@ -978,109 +996,240 @@ class myplugin:
             ordnumb = orderlist[indofid]
             gridlayer.changeAttributeValue(feat.id(), attrindex, ordnumb)
         gridlayer.commitChanges()
-        self.samplepool(gridlayer, layer, samp_numb)
+        self.sampl(gridlayer, layer, samp_numb)
 
 
-    # Function for sample pool creation:
-    def samplepool(self, gridlayer, layer, samp_numb):
-        params = {'INPUT': gridlayer, 'OVERLAY': layer, 'OUTPUT': 'TEMPORARY_OUTPUT'}
-        cutted = processing.run('native:clip', params)
-        cuttedlayer = cutted['OUTPUT']
-        sample_order_pool = []
-        origcrs = layer.crs().authid()
-        pool_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "sample_points", "memory")
-        pr = pool_layer.dataProvider()
-        pool_layer.startEditing()
-        pr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
-        pool_layer.updateFields()
-        QgsProject.instance().addMapLayer(pool_layer)
-        cuttedfeatures = cuttedlayer.getFeatures()
-        for feat in cuttedfeatures:
-           fid = feat.id()
-           memory_cutted_grid = cuttedlayer.materialize(QgsFeatureRequest().setFilterFid(fid))
-           parameters = {'INPUT': memory_cutted_grid, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': 1, 'OUTPUT': 'TEMPORARY_OUTPUT'}
-           rand = processing.run('qgis:randompointsinlayerbounds', parameters)
-           randlayer = rand['OUTPUT']
-           rand_features = randlayer.getFeatures()
-           attrindex = cuttedlayer.fields().indexFromName("id")
-           fattr = feat.attributes()
-           feat_order = fattr[attrindex]
-           serial = 1
-           for randfeat in rand_features:
-               randgeom = randfeat.geometry()
-               fet = QgsFeature()
-               fet.setGeometry(randgeom)
-               fet.setAttributes([str(feat_order), str(serial), str(randgeom.asPoint()[0]), str(randgeom.asPoint()[1])])
-               pr.addFeatures([fet])
-               serial = serial + 1
-           pool_layer.updateExtents()
-           sample_order_pool.append(feat_order)
-        self.sampleselection(sample_order_pool, pool_layer, samp_numb, gridlayer, cuttedlayer)
+    # Defining a function for grid sorting in the next section:
+    def get_name(self, ft):
+        return ft['id']
 
 
-    # Function for sampling:
-    def sampleselection(self, sample_order_pool, pool_layer, samp_numb, gridlayer, cuttedlayer):
-        sample_order_pool.sort()
-        sample_pool = []
-        i = 0
-        for ordernumber in sample_order_pool:
-            rangelist = [ordernumber]
-            rng = [*range(i, (i + 50))]
-            rangelist.append(rng)
-            sample_pool.append(rangelist)
-            i = i + 50
-        recent_elem = randint(1, (i - 1))
+    # Function for creating the sample line:
+    def sampl(self, gridlayer, layer, samp_numb):
+        # Creating an ID field (named grts_id) for polygons for future references (values will be assigned in the next section):
+        field_names = []
+        for f in layer.fields():
+            field_names.append(f.name())
+        probenumb = 1
+        id_error = 0
+        timeout = time.time() + 60
+        idfieldname_index = int()
+        idfieldname_orig = str()
+        while True:
+            idfieldname = "grts_id" + str(probenumb)
+            if idfieldname not in field_names:
+                layer.dataProvider().addAttributes([QgsField(idfieldname, QVariant.Int)])
+                layer.updateFields()
+                idfieldname_orig = copy.deepcopy(idfieldname)
+                idfieldname_index = layer.fields().indexFromName(idfieldname)
+                break
+            if time.time() > timeout:
+                id_error = 1
+                break
+            else:
+                probenumb = probenumb + 1
+        if id_error == 1:
+            self.error_while()
+        else:
+            idfieldname = idfieldname_orig
+            # Getting whole polygons' inclusion probabilities
+            # (by creating a list containing the list of ids, areas and line segments of each polygons)
+            # (plus filling the polygon id field):
+            getcontext().prec = 10
+            layarea = Decimal()
+            features = layer.getFeatures()
+            for fet in features:
+                geom = fet.geometry()
+                area = geom.area()
+                area = Decimal(area)
+                layarea = layarea + area
+            layarea = Decimal(layarea)
+            wholeline = int(samp_numb) * 100000
+            wholeline = Decimal(wholeline)
+            polygon_probs = []
+            idnumb = 1
+            fts = layer.getFeatures()
+            layer.startEditing()
+            for feat in fts:
+                fid = feat.id()
+                layer.changeAttributeValue(fid, idfieldname_index, idnumb)
+                polylist = [idnumb]
+                geom = feat.geometry()
+                area = geom.area()
+                area = Decimal(area)
+                polylist.append(area)
+                area_ratio = area / layarea
+                polyline = wholeline * area_ratio
+                polyline = int(polyline)
+                polylist.append(polyline)
+                polygon_probs.append(polylist)
+                idnumb = idnumb + 1
+            layer.updateFields()
+            layer.commitChanges()
+            # Cutting the grid layer by the original layer to be sampled:
+            params = {'INPUT': gridlayer, 'OVERLAY': layer, 'OUTPUT': 'memory: '}
+            cutted = processing.run('native:clip', params)
+            cuttedlayer = cutted['OUTPUT']
+            # Sorting grid features by the id:
+            feats = cuttedlayer.getFeatures()
+            idindex = cuttedlayer.fields().indexFromName("id")
+            feats = sorted(feats, key = self.get_name)
+            # Looping through the sorted features and get the data of its line segment
+            # (a list of two lists; in the first list there is the quadrant id and will be the extent of the line segment,
+            # and in the second list there are lists containing the id of the polygon and the extent of it inside the quadrant):
+            sample_order_list = []
+            line_length = 0
+            begin = 0
+            begin_for_whole_quadrant = 0
+            dict = {}
+            for feat in feats:
+                # First assign the id of the grid to the first list and then get the polygons inside the grid:
+                featattrs = feat.attributes()
+                feat_order = featattrs[idindex]
+                ordrange = [feat_order]
+                fid = feat.id()
+                feataslay = cuttedlayer.materialize(QgsFeatureRequest().setFilterFid(fid))
+                pars = {'INPUT': layer, 'OVERLAY': feataslay, 'OUTPUT': 'memory: '}
+                onelay = processing.run('native:clip', pars)
+                onelayer = onelay['OUTPUT']
+                dict["grid_" + str(feat_order)] = onelayer
+                # Creating the information list of the polygons (id, order, length in the line):
+                ft = onelayer.getFeatures()
+                polylist = []
+                ord = 1
+                for fit in ft:
+                    featdata = []
+                    featattrs = fit.attributes()
+                    featid = featattrs[idfieldname_index]
+                    featdata.append(featid)
+                    featdata.append(ord)
+                    for elem in polygon_probs:
+                        if elem[0] == featid:
+                            geom = fit.geometry()
+                            area = geom.area()
+                            area = Decimal(area)
+                            arearatio = area / elem[1]
+                            arearatio = Decimal(arearatio)
+                            featlength = elem[2] * arearatio
+                            featlength = int(featlength)
+                            featdata.append(featlength)
+                        else:
+                             pass
+                    polylist.append(featdata)
+                    ord = ord + 1
+                # Creating the random permutation of the polygons and its place on the line (It is the final_order_polygons)
+                # and calculating the length of the whole line of the quadrant:
+                randperm = [*range(1, (ord + 1))]
+                shuffle(randperm)
+                final_order_polygons = []
+                whole_line_length = int()
+                for i in randperm:
+                    for el in polylist:
+                        if el[1] == i:
+                            polydata = [el[0]]
+                            polyplace = [*range(begin, (begin + el[2] + 1))]
+                            polydata.append(polyplace)
+                            final_order_polygons.append(polydata)
+                            whole_line_length = whole_line_length + el[2]
+                            begin = begin + el[2]
+                        else:
+                            pass
+                # Assigning the whole line length to the list containing the polygon id
+                # and assigning the quadrants line length to the variable holding the whole line (line_length):
+                line_length = line_length + whole_line_length
+                whole_line_length_as_number = copy.deepcopy(whole_line_length)
+                whole_line_length = [*range(begin_for_whole_quadrant, (begin_for_whole_quadrant + whole_line_length + 1))]
+                ordrange.append(whole_line_length)
+                begin_for_whole_quadrant = begin_for_whole_quadrant + whole_line_length_as_number
+                # Creating a list of the quadrant infromation list (ordrange)
+                # and the polygon information list (final_order_polygons):
+                final_list = [ordrange, final_order_polygons]
+                # Assigning this final list to the final list of the quadrant line information:
+                sample_order_list.append(final_list)
+            # Calling the next function to sample the line created in here:
+            self.getsample(sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer)
+
+
+    # Function for get the element for samples sorting in the next section:
+    def sampsort(self, sample):
+        return sample[0]
+
+
+    # Function for getting the sample:
+    def getsample(self, sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer):
+        # Getting the line points from a systematic sampling method:
+        recent_elem = randint(1, line_length)
         line_numbers = [recent_elem]
-        line_step = (i - 1) / int(samp_numb)
+        line_step = line_length / int(samp_numb)
         for y in range(1, int(samp_numb)):
             line_numb = recent_elem + line_step
-            if line_numb <= (i - 1):
+            if line_numb <= line_length:
                 line_numb = math.trunc(line_numb)
                 line_numbers.append(line_numb)
                 recent_elem = line_numb
             else:
-                line_numb = line_numb - (i - 1)
+                line_numb = line_numb - line_length
                 line_numb = math.trunc(line_numb)
                 line_numbers.append(line_numb)
                 recent_elem = line_numb
+        # Getting the ids from the previously got line points:
         samples = []
-        for elem in sample_pool:
-            x = 0
-            for numb in line_numbers:
-                if numb in elem[1]:
-                    samples.append(elem[0])
-                    del line_numbers[x]
-                else:
-                    x = x + 1
-        self.getsample(pool_layer, samples, gridlayer, cuttedlayer)
-
-
-    # Function for getting the previously selected samples:
-    def getsample(self, pool_layer, samples, gridlayer, cuttedlayer):
-        pool_layer.selectAll()
-        parameters = {'INPUT': pool_layer, 'OUTPUT': 'memory:'}
-        pool_layer_original = processing.run("native:saveselectedfeatures", parameters)['OUTPUT']
-        pool_layer.removeSelection()
-        poolfeatures = pool_layer.getFeatures()
-        idindex = pool_layer.fields().indexFromName("Order_number")
-        for feat in poolfeatures:
-            featattributes = feat.attributes()
-            featid = featattributes[idindex]
-            featid = int(featid)
-            if featid in samples:
-                pass
-            else:
-                fid = feat.id()
-                pool_layer.deleteFeature(fid)
+        for elem in sample_order_list:
+            for samp in line_numbers:
+                if samp in elem[0][1]:
+                    for el in elem[1]:
+                        if samp in el[1]:
+                            this_samp = [elem[0][0], el[0]]
+                            samples.append(this_samp)
+        # Creating a layer for the sample points (with 4 attributes, order_number, serial_number, x_coordinate, y_coordinate):
+        origcrs = layer.crs().authid()
+        sample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "sample_points", "memory")
+        pr = sample_point_layer.dataProvider()
+        sample_point_layer.startEditing()
+        pr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
+        sample_point_layer.updateFields()
+        QgsProject.instance().addMapLayer(sample_point_layer)
+        # Generating random points in the selected polygon fragments:
+        cutfeats = cuttedlayer.getFeatures()
+        cutfeats = sorted(cutfeats, key = self.get_name)
+        idindex = cuttedlayer.fields().indexFromName("id")
+        samples = sorted(samples, key = self.sampsort)
+        serial = 1
+        for cf in cutfeats:
+            cfatts = cf.attributes()
+            for sampl in samples:
+                if cfatts[idindex] == sampl[0]:
+                    samplay = dict.get("grid_" + str(cfatts[idindex]))
+                    samppointlayfeats = samplay.getFeatures()
+                    smplf_id_index = samplay.fields().indexFromName(idfieldname)
+                    for smplf in samppointlayfeats:
+                        if smplf[smplf_id_index] == sampl[1]:
+                            fid = smplf.id()
+                            laytorandpoint = samplay.materialize(QgsFeatureRequest().setFilterFid(fid))
+                            parameters = {'INPUT': laytorandpoint, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': 1, 'OUTPUT': 'memory: '}
+                            rand = processing.run('qgis:randompointsinlayerbounds', parameters)
+                            randlayer = rand['OUTPUT']
+                            rand_features = randlayer.getFeatures()
+                            for randfet in rand_features:
+                                randgeom = randfet.geometry()
+                            fet = QgsFeature()
+                            fet.setGeometry(randgeom)
+                            fet.setAttributes([str(cfatts[idindex]), str(serial), str(randgeom.asPoint()[0]), str(randgeom.asPoint()[1])])
+                            pr.addFeatures([fet])
+                            serial = serial + 1
+                            sampind = samples.index(sampl)
+                            del samples[sampind]
+                            break
+                        else:
+                            pass
         self.dlg.close()
-        self.openlays(gridlayer, cuttedlayer, pool_layer_original)
+        self.openlays(gridlayer, cuttedlayer, dict)
 
 
     # Function for loading intermedier layers:
-    def openlays(self, gridlayer, cuttedlayer, pool_layer_original):
+    def openlays(self, gridlayer, cuttedlayer, dict):
         gridlayer.setName("memory_grid")
         cuttedlayer.setName("cutted_grid_layer")
-        pool_layer_original.setName("random_point_pool")
         windw = QWidget()
         windw.setWindowTitle("Intermedier layers")
         label0 = QLabel("Window for loading the intermedier layers used by the program. It is only available for the development phase!")
@@ -1090,9 +1239,10 @@ class myplugin:
         label2 = QLabel('For loading the cutted grid layer press "CUTTED" button:')
         button2 = QPushButton("CUTTED")
         button2.clicked.connect(lambda: self.loadcutted(cuttedlayer))
-        label3 = QLabel('For loading the random point pool press "POOL" button:')
-        button3 = QPushButton("POOL")
-        button3.clicked.connect(lambda: self.loadpool(pool_layer_original))
+        label3 = QLabel('For loading the polygon layers inside the grid cells:')
+        button3 = QPushButton("GRID_POLYGON")
+        grid_polygon_checker = 0
+        button3.clicked.connect(lambda: self.grid_polygon(dict, grid_polygon_checker))
         cancel_button = QPushButton("CANCEL")
         cancel_button.clicked.connect(lambda: windw.close())
         hbox1 = QHBoxLayout()
@@ -1157,16 +1307,17 @@ class myplugin:
 
 
     # Function for loading the random pool layer:
-    def loadpool(self, pool_layer_original):
-        layers = QgsProject.instance().mapLayers().values()
-        loadedvalue = 0
-        for lay in layers:
-            if lay.name() == "random_point_pool":
-                loadedvalue = loadedvalue + 1
-        if loadedvalue != 0:
+    def grid_polygon(self, dict, grid_polygon_checker):
+        if grid_polygon_checker != 0:
             self.alreadyloaded()
         else:
-            QgsProject.instance().addMapLayer(pool_layer_original)
+            itvalue = 1
+            for elem in dict:
+                one_grid = dict.get(elem)
+                one_grid.setName("grid_cell_polygon_" + str(itvalue))
+                QgsProject.instance().addMapLayer(one_grid)
+                itvalue = itvalue + 1
+            grid_polygon_checker = grid_polygon_checker + 1
 
 
     # Function for the window if a layer is already loaded:
