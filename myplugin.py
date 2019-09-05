@@ -26,7 +26,7 @@ import os
 import tempfile
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox, QRadioButton
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox, QRadioButton, QButtonGroup
 from random import uniform, sample, randint, shuffle
 from qgis.core import *
 import processing
@@ -79,6 +79,11 @@ class myplugin:
         # Create the dialog (after translation) and keep reference
         self.dlg = mypluginDialog()
         self.dlg.get_random.clicked.connect(lambda: self.random_feature_window())
+
+
+        # Create feedback value for custom quadrant number selection and oversampling:
+        self.quadrchecker = 1
+        self.is_oversampling = 1
 
         # Declare instance attributes
         self.actions = []
@@ -680,6 +685,7 @@ class myplugin:
         windw.setWindowTitle("Error Window")
         label = QLabel("The following error(s) occured (Please press OK to go back to the settings window):")
         text = QTextBrowser()
+        error_text = ', '.join(error_text)
         text.append(error_text)
         ok_button = QPushButton()
         ok_button.setText("OK")
@@ -714,7 +720,7 @@ class myplugin:
 
 
     # Checking if the number is an integer:
-    def integer_check(self, n, isintvalue):
+    def integer_check(self, n):
         notintvalue = 0
         try:
             float(n)
@@ -724,13 +730,17 @@ class myplugin:
             if float(n) - round(float(n), 0) != 0:
                 notintvalue = notintvalue + 1
         if notintvalue != 0:
-            isintvalue = isintvalue + 1
+            isintvalue = 1
+            return isintvalue
+        else:
+            isintvalue = 0
+            return isintvalue
 
 
     # Window for layer selection:
     def samplinglayer(self):
         windw = QWidget()
-        windw.setWindowTitle("GRTS SAMPLING SETTINGS")
+        windw.setWindowTitle("GRTS AERIAL SAMPLING SETTINGS")
         text0 = QLabel("Please select the vector layer you want to use for sampling:")
         cbox = QComboBox()
         cbox.clear()
@@ -753,15 +763,33 @@ class myplugin:
         text2 = QLabel("If you would like to give the number of grid cells used for sampling, please select the correct option:")
         label1 = QLabel("Default grid number:")
         label2 = QLabel("Custom grid number:")
-        quadrchecker = 1
+        text4 = QLabel("For activating oversampling select the correct button:")
+        label3 = QLabel("Not use oversampling:")
+        label4 = QLabel("Use oversampling:")
+        text5 = QLabel("Please enter the desired additional sampling number(if oversampling is enabled):")
+        self.quadrchecker = 1
+        self.is_oversampling = 1
+        grid_group = QButtonGroup(windw)
         button_def = QRadioButton()
         button_def.setChecked(True)
-        button_def.toggled.connect(lambda: self.deftoggled(quadrchecker, custom_quadr))
+        button_def.toggled.connect(lambda: self.deftoggled(custom_quadr))
         button_custom = QRadioButton()
-        button_custom.toggled.connect(lambda: self.customtoggled(quadrchecker, custom_quadr))
+        button_custom.toggled.connect(lambda: self.customtoggled(custom_quadr))
+        grid_group.addButton(button_def)
+        grid_group.addButton(button_custom)
+        oversampling_group = QButtonGroup(windw)
+        button_not_oversampling = QRadioButton()
+        button_not_oversampling.setChecked(True)
+        button_not_oversampling.toggled.connect(lambda: self.notoversample(oversample))
+        button_oversampling = QRadioButton()
+        button_oversampling.toggled.connect(lambda: self.oversample(oversample))
+        oversampling_group.addButton(button_not_oversampling)
+        oversampling_group.addButton(button_oversampling)
+        oversample = QLineEdit()
+        oversample.setEnabled(False)
         okbutton = QPushButton()
         okbutton.setText("OK")
-        okbutton.clicked.connect(lambda: self.gridplacement(cbox.currentText(), numb.text(), custom_quadr.text(), quadrchecker, windw))
+        okbutton.clicked.connect(lambda: self.gridplacement(cbox.currentText(), numb.text(), custom_quadr.text(), self.quadrchecker, windw, oversample.text(), self.is_oversampling))
         cancelbutton = QPushButton()
         cancelbutton.setText("CANCEL")
         cancelbutton.clicked.connect(lambda: windw.close())
@@ -800,11 +828,30 @@ class myplugin:
         hbox6.addWidget(custom_quadr)
         hbox6.addStretch(2)
         hbox7 = QHBoxLayout()
-        hbox7.addStretch(5)
-        hbox7.addWidget(okbutton)
-        hbox7.addStretch(2)
-        hbox7.addWidget(cancelbutton)
-        hbox7.addStretch(5)
+        hbox7.addWidget(text4)
+        hbox7.addStretch()
+        hbox8 = QHBoxLayout()
+        hbox8.addStretch()
+        hbox8.addWidget(label3)
+        hbox8.addStretch(1)
+        hbox8.addWidget(button_not_oversampling)
+        hbox8.addStretch(10)
+        hbox8.addWidget(label4)
+        hbox8.addStretch(1)
+        hbox8.addWidget(button_oversampling)
+        hbox8.addStretch(10)
+        hbox9 = QHBoxLayout()
+        hbox9.addStretch()
+        hbox9.addWidget(text5)
+        hbox9.addStretch(1)
+        hbox9.addWidget(oversample)
+        hbox9.addStretch(2)
+        hbox10 = QHBoxLayout()
+        hbox10.addStretch(5)
+        hbox10.addWidget(okbutton)
+        hbox10.addStretch(2)
+        hbox10.addWidget(cancelbutton)
+        hbox10.addStretch(5)
         vbox = QVBoxLayout()
         vbox.addStretch(2)
         vbox.addLayout(hbox1)
@@ -820,61 +867,109 @@ class myplugin:
         vbox.addLayout(hbox6)
         vbox.addStretch(1)
         vbox.addLayout(hbox7)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox8)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox9)
+        vbox.addStretch(1)
+        vbox.addLayout(hbox10)
         vbox.addStretch(2)
         windw.setLayout(vbox)
         windw.show()
 
 
     # Function for using default quadrant ammount:
-    def deftoggled(self, quadrchecker, custom_quadr):
-        quadrchecker = 1
+    def deftoggled(self, custom_quadr):
+        self.quadrchecker = 1
         custom_quadr.setEnabled(False)
 
 
     # Function for using custom quadrant ammount:
-    def customtoggled(self, quadrchecker, custom_quadr):
-        quadrchecker = 2
+    def customtoggled(self, custom_quadr):
+        self.quadrchecker = 2
         custom_quadr.setEnabled(True)
 
 
+    # Function for the disable oversampling button:
+    def notoversample(self, oversample):
+        self.is_oversampling = 1
+        oversample.setEnabled(False)
+
+    # Function for oversample button:
+    def oversample(self, oversample):
+        self.is_oversampling = 2
+        oversample.setEnabled(True)
+
+
     # Grid placement on the layer:
-    def gridplacement(self, layer, samp_number, custom, quadrchecker, windw):
+    def gridplacement(self, layer, samp_number, custom, quadrchecker, windw, oversample, is_oversampling):
         windw.close()
         erro_text = []
         is_error = 0
-        if layer is None:
+        samp_number_problem = 0
+        oversample_porblem = 0
+        if not layer:
             erro_text.append("A layer should be selected")
             is_error = is_error + 1
-        isintvalue = 0
-        self.integer_check(samp_number, isintvalue)
-        if isintvalue != 0:
-            erro_text.append("The sample number must be an integer")
+        if not samp_number:
+            erro_text.append("A sample number must be given")
             is_error = is_error + 1
+            samp_number_problem = samp_number_problem + 1
         else:
-            if int(samp_number) < 0:
-                erro_text.append("The number of desired samples must be over zero")
+            isintvalue = self.integer_check(samp_number)
+            if isintvalue != 0:
+                erro_text.append("The sample number must be an integer")
                 is_error = is_error + 1
-        if quadrchecker == 1:
-            cellgen = int(math.ceil(math.log(int(samp_number), 4) + 2))
-            cellnumb = 4**cellgen
-        if quadrchecker == 2:
-            customisint = 0
-            self.integer_check(custom, customisint)
-            if customisint != 0:
-                erro_text.append("The custom power of four must be a number")
-                is_error = is_error + 1
+                samp_number_problem = samp_number_problem + 1
             else:
-                if custom < 0:
-                    erro_text.append("The custom power of four must be over zero")
+                if int(samp_number) < 0:
+                    erro_text.append("The number of desired samples must be over zero")
+                    is_error = is_error + 1
+                    samp_number_problem = samp_number_problem + 1
+        if is_oversampling == 2:
+            if not oversample:
+                erro_text.append("If oversampling is selected there should be a number of additional samples")
+                is_error = is_error + 1
+                oversample_porblem = oversample_porblem + 1
+            else:
+                isintover = self.integer_check(oversample)
+                if isintover != 0:
+                    erro_text.append("The number of additional samples must be an integer")
+                    is_error = is_error + 1
+                    oversample_porblem = oversample_porblem + 1
+                else:
+                    if int(oversample) < 0:
+                        erro_text.append("The number of additional samples must be over zero")
+                        is_error = is_error + 1
+                        oversample_porblem = oversample_porblem + 1
+        if oversample_porblem == 0 and samp_number_problem == 0 and is_oversampling == 2:
+            samp_number = int(samp_number) + int(oversample)
+        if quadrchecker == 1:
+            if samp_number_problem == 0 and oversample_porblem == 0:
+                cellgen = int(math.ceil(math.log(int(samp_number), 4) + 2))
+                cellnumb = 4**cellgen
+        if quadrchecker == 2:
+            if samp_number_problem == 0 and oversample_porblem == 0:
+                if not custom:
+                    erro_text.append("The custom power of four must be given if custom is selected")
                     is_error = is_error + 1
                 else:
-                    cellgen = int(math.ceil(math.log(int(samp_number), 4) + 2))
-                    if cellgen > custom:
-                        erro_text.append("If custom quadrant number is selected, the power of 4 should be higher than the default(base 4 logarithm of the selected sample numbers plus 2)")
+                    customisint = self.integer_check(custom)
+                    if customisint != 0:
+                        erro_text.append("The custom power of four must be an integer")
                         is_error = is_error + 1
-                    if custom >= cellgen:
-                        cellgen = custom
-                        cellnumb = 4**cellgen
+                    else:
+                        if int(custom) < 0:
+                            erro_text.append("The custom power of four must be over zero")
+                            is_error = is_error + 1
+                        else:
+                            cellgen = int(math.ceil(math.log(int(samp_number), 4) + 2))
+                            if cellgen > int(custom):
+                                erro_text.append("If custom quadrant number is selected, the selected power of 4 should be higher than the default(base 4 logarithm of the selected sample numbers plus 2)")
+                                is_error = is_error + 1
+                            if int(custom) >= cellgen:
+                                cellgen = int(custom)
+                                cellnumb = 4**cellgen
         if is_error != 0:
             self.errorforquadr(erro_text)
         else:
@@ -939,14 +1034,14 @@ class myplugin:
             celly = (yextentmax - yextentmin) / (2**cellgen)
             extent = str(xextentmin) + ',' + str(xextentmax) + ',' + str(yextentmin) + ',' + str(yextentmax)
             crs = layer.crs()
-            parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,'OUTPUT': 'memory: ', 'HOVERLAY': 0, 'VOVERLAY': 0}
+            parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,'OUTPUT': 'TEMPORARY_OUTPUT', 'HOVERLAY': 0, 'VOVERLAY': 0}
             grid = processing.run('qgis:creategrid', parameters)
             gridlay = grid['OUTPUT']
-            self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number)
+            self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number, oversample, is_oversampling)
 
 
     # Creating the order of cell IDs to match the here created hierarchical order of cell serial numbers:
-    def gridorder(self, cellgen, cellnumb, layer, gridlayer, samp_numb):
+    def gridorder(self, cellgen, cellnumb, layer, gridlayer, samp_numb, oversample, is_oversampling):
         numblist = []
         for i in range(1, (cellnumb + 1)):
             numblist.append(i)
@@ -986,6 +1081,15 @@ class myplugin:
                     newlist.append(elem)
             orderlist = newlist
         orderlist = list(map(int, orderlist))
+        orderlist_old = copy.deepcopy(orderlist)
+        if is_oversampling == 2:
+            revord = []
+            for elem in orderlist:
+                elem = str(elem)
+                elem = ''.join(reversed(elem))
+                elem = int(elem)
+                revord.append(elem)
+            orderlist = revord
         gridfeatures = gridlayer.getFeatures()
         attrindex = gridlayer.fields().indexFromName("id")
         gridlayer.startEditing()
@@ -996,7 +1100,7 @@ class myplugin:
             ordnumb = orderlist[indofid]
             gridlayer.changeAttributeValue(feat.id(), attrindex, ordnumb)
         gridlayer.commitChanges()
-        self.sampl(gridlayer, layer, samp_numb)
+        self.sampl(gridlayer, layer, samp_numb, oversample)
 
 
     # Defining a function for grid sorting in the next section:
@@ -1005,7 +1109,7 @@ class myplugin:
 
 
     # Function for creating the sample line:
-    def sampl(self, gridlayer, layer, samp_numb):
+    def sampl(self, gridlayer, layer, samp_numb, oversample):
         # Creating an ID field (named grts_id) for polygons for future references (values will be assigned in the next section):
         field_names = []
         for f in layer.fields():
@@ -1067,7 +1171,7 @@ class myplugin:
             layer.updateFields()
             layer.commitChanges()
             # Cutting the grid layer by the original layer to be sampled:
-            params = {'INPUT': gridlayer, 'OVERLAY': layer, 'OUTPUT': 'memory: '}
+            params = {'INPUT': gridlayer, 'OVERLAY': layer, 'OUTPUT': 'TEMPORARY_OUTPUT'}
             cutted = processing.run('native:clip', params)
             cuttedlayer = cutted['OUTPUT']
             # Sorting grid features by the id:
@@ -1089,7 +1193,7 @@ class myplugin:
                 ordrange = [feat_order]
                 fid = feat.id()
                 feataslay = cuttedlayer.materialize(QgsFeatureRequest().setFilterFid(fid))
-                pars = {'INPUT': layer, 'OVERLAY': feataslay, 'OUTPUT': 'memory: '}
+                pars = {'INPUT': layer, 'OVERLAY': feataslay, 'OUTPUT': 'TEMPORARY_OUTPUT'}
                 onelay = processing.run('native:clip', pars)
                 onelayer = onelay['OUTPUT']
                 dict["grid_" + str(feat_order)] = onelayer
@@ -1147,7 +1251,7 @@ class myplugin:
                 # Assigning this final list to the final list of the quadrant line information:
                 sample_order_list.append(final_list)
             # Calling the next function to sample the line created in here:
-            self.getsample(sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer)
+            self.getsample(sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer, oversample)
 
 
     # Function for get the element for samples sorting in the next section:
@@ -1156,7 +1260,7 @@ class myplugin:
 
 
     # Function for getting the sample:
-    def getsample(self, sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer):
+    def getsample(self, sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer, oversample):
         # Getting the line points from a systematic sampling method:
         recent_elem = randint(1, line_length)
         line_numbers = [recent_elem]
@@ -1189,13 +1293,27 @@ class myplugin:
         pr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
         sample_point_layer.updateFields()
         QgsProject.instance().addMapLayer(sample_point_layer)
+        # Creating a layer for the oversample points if oversampling is selected:
+        if self.is_oversampling == 2:
+            oversample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "oversample_points", "memory")
+            opr = oversample_point_layer.dataProvider()
+            oversample_point_layer.startEditing()
+            opr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
+            oversample_point_layer.updateFields()
+            QgsProject.instance().addMapLayer(oversample_point_layer)
+        # Taking-apart the oversample component of the sample number from the real sample amount (if there is oversampling):
+        if self.is_oversampling == 2:
+            samp_numb = int(samp_numb) - int(oversample)
         # Generating random points in the selected polygon fragments:
         cutfeats = cuttedlayer.getFeatures()
         cutfeats = sorted(cutfeats, key = self.get_name)
         idindex = cuttedlayer.fields().indexFromName("id")
         samples = sorted(samples, key = self.sampsort)
         serial = 1
+        samp_counter = 0
         for cf in cutfeats:
+            if samp_counter == samp_numb:
+                break
             cfatts = cf.attributes()
             for sampl in samples:
                 if cfatts[idindex] == sampl[0]:
@@ -1206,7 +1324,7 @@ class myplugin:
                         if smplf[smplf_id_index] == sampl[1]:
                             fid = smplf.id()
                             laytorandpoint = samplay.materialize(QgsFeatureRequest().setFilterFid(fid))
-                            parameters = {'INPUT': laytorandpoint, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': 1, 'OUTPUT': 'memory: '}
+                            parameters = {'INPUT': laytorandpoint, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': 1, 'OUTPUT': 'TEMPORARY_OUTPUT'}
                             rand = processing.run('qgis:randompointsinlayerbounds', parameters)
                             randlayer = rand['OUTPUT']
                             rand_features = randlayer.getFeatures()
@@ -1219,9 +1337,43 @@ class myplugin:
                             serial = serial + 1
                             sampind = samples.index(sampl)
                             del samples[sampind]
+                            samp_counter = samp_counter + 1
                             break
                         else:
                             pass
+        # Additional sample creation if oversampling is enabled:
+        if self.is_oversampling == 2:
+            oscutfeats = cuttedlayer.getFeatures()
+            oscutfeats = sorted(cutfeats, key=self.get_name)
+            serial = 1
+            for oscf in oscutfeats:
+                oscfatts = oscf.attributes()
+                for samp in samples:
+                    if oscfatts[idindex] == samp[0]:
+                        samplayer = dict.get("grid_" + str(oscfatts[idindex]))
+                        samppointlayerfeats = samplayer.getFeatures()
+                        smplrf_id_index = samplayer.fields().indexFromName(idfieldname)
+                        for smplrf in samppointlayerfeats:
+                            if smplrf[smplrf_id_index] == samp[1]:
+                                fd = smplrf.id()
+                                layertorandpoint = samplayer.materialize(QgsFeatureRequest().setFilterFid(fd))
+                                params = {'INPUT': layertorandpoint, 'MIN_DISTANCE': 0, 'POINTS_NUMBER': 1, 'OUTPUT': 'TEMPORARY_OUTPUT'}
+                                osrand = processing.run('qgis:randompointsinlayerbounds', params)
+                                osrandlayer = osrand['OUTPUT']
+                                osrand_features = osrandlayer.getFeatures()
+                                for osrandfet in osrand_features:
+                                    osrandgeom = osrandfet.geometry()
+                                osfet = QgsFeature()
+                                osfet.setGeometry(osrandgeom)
+                                osfet.setAttributes([str(oscfatts[idindex]), str(serial), str(osrandgeom.asPoint()[0]),
+                                                   str(osrandgeom.asPoint()[1])])
+                                opr.addFeatures([osfet])
+                                serial = serial + 1
+                                sampind = samples.index(samp)
+                                del samples[sampind]
+                                break
+                            else:
+                                pass
         self.dlg.close()
         self.openlays(gridlayer, cuttedlayer, dict)
 
