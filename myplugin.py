@@ -24,7 +24,7 @@
 import sys
 import os
 import tempfile
-from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant
+from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant, Qt, QMetaType
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox, QRadioButton, QButtonGroup
 from random import uniform, sample, randint, shuffle
@@ -37,6 +37,7 @@ import collections
 import copy
 import time
 from decimal import *
+import threading
 
 
 # Initialize Qt resources from file resources.py
@@ -80,9 +81,56 @@ class myplugin:
         self.dlg = mypluginDialog()
 
 
-        # Create feedback value for custom quadrant number selection and oversampling:
+        # Value for storing the qlistwidget for stratum determiner assignning:
+        self.stratlist = QListWidget()
+
+
+        # Creating feedback value for custom quadrant number selection, oversampling and stratified sampling:
         self.quadrchecker = 1
         self.is_oversampling = 1
+        self.is_strat = 1
+
+
+
+        # STRATIFICATION DATA STORING VARIABLES:
+
+        # Creating a list that stores the ids of the used fields (in lists of the stratification determiner id and the field id):
+        self.usedfields = []
+
+        # Creating value that stores stratum data (It is a list of lists containing the data of one stratification determiner,
+        # The first value in the list is the serial number, the second is the field index, the third is type (1 if a number, 2 if a discrete variable),
+        # And last follows the list of ranges and variables with their identification name (lists again) (ID, VALUE/RANGE_MIN+RANGE_MAX))
+        # And if it is a contnuous data there is the maximum of the whole range at the end:
+        self.stratdata = []
+
+        # Creating an ID generator for the stratification:
+        self.id_numb = 0
+
+        # Value for the selection between continuous and discrete type of field elements in the case of all number attributes (1 is for continuous and 2 is for discrete values):
+        self.sel_type = 1
+
+        # Creating a list for used identification names (A lsit of list. The first element is the serial number and the second is a list of used ids):
+        self.usedidnames = []
+
+
+
+        # LOCAL ASSIGMENT DATA STORING:
+
+        # List for storing the id names inside an assignment cycle (A list of lists. Inside the list there is the serial of the id, and the id itself):
+        self.this_usedids = []
+
+        # Value for storing the current minimum of ranges:
+        self.current_min = float()
+
+        # List to store current ranges, and the serial of the ranges (These are lists of the serial, the id and the value or the min and max of the range):
+        self.current_ranges = []
+        self.serial_for_ranges = 1
+
+        # List storing the used serials in range or discrete value id assignments:
+        self.used_serials = []
+
+
+
 
         # Declare instance attributes
         self.actions = []
@@ -203,7 +251,1231 @@ class myplugin:
 
 
 
-    #----------------------------------GRTS METHOD APPLICATION----------------------------------------------------------------
+    # ---------------------------- RASTER LAYER AVERAGING INSIDE POLYGONS -----------------------------------------------
+
+
+
+    # Error window for raster processing:
+    def errorwindow(self, numb, selected_vect_layer_name):
+        text = ""
+        if numb == 1:
+            text = "There should be a vector layer loaded"
+        if numb == 2:
+            text = "A layer must be selected"
+        if numb == 4:
+            text = "There should be a raster layer loaded"
+        if numb == 7:
+            text = "A layer must be selected"
+        if numb == 9:
+            text = "The name of the raster average field must be given"
+        if numb == 10:
+            text = "The number of the attribute selected should be below or equal to the number of attributes the layer have"
+        windw = QWidget()
+        windw.setWindowTitle("Error window")
+        textbox = QTextBrowser()
+        textbox.append(text)
+        ok_button = QPushButton()
+        ok_button.setText("OK")
+        if numb == 1:
+            ok_button.clicked.connect(lambda: windw.close())
+        if numb == 2:
+            ok_button.clicked.connect(lambda: self.errorclose(windw))
+        if numb == 4:
+            ok_button.clicked.connect(lambda: self.errorclose(windw))
+        if numb == 7:
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+        if numb == 9:
+            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+        if numb == 10:
+            ok_button.clicked.connect(lambda: windw.close())
+        vbox = QVBoxLayout()
+        vbox.addWidget(textbox)
+        vbox.addWidget(ok_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for error window to close itself and open self.raster():
+    def errorclose(self, windw):
+        windw.close()
+        self.raster()
+
+
+    # Function to get mean of raster data, first the selection of vector data:
+    def raster(self):
+        loaded_layers = self.iface.mapCanvas().layers()
+        vector_layers = []
+        for layer in loaded_layers:
+            if layer.type() == QgsMapLayer.VectorLayer:
+                vector_layers.append(layer)
+        loaded_layers = vector_layers
+        if not loaded_layers:
+            self.errorwindow(1, selected_vect_layer_name=None)
+        else:
+            loaded_layers_list = []
+            for lay in loaded_layers:
+                layname = lay.name()
+                loaded_layers_list.append(layname)
+            windw = QWidget()
+            windw.setWindowTitle("Vector layer selection")
+            label = QLabel()
+            label.setText("Vector layer selection:")
+            laylist = QComboBox()
+            laylist.addItems(loaded_layers_list)
+            ok_button = QPushButton()
+            ok_button.setText("OK")
+            ok_button.clicked.connect(lambda: self.rastlay(laylist.currentText(), windw))
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addWidget(laylist)
+            vbox.addWidget(ok_button)
+            windw.setLayout(vbox)
+            windw.show()
+
+
+    # Function for checking the selected layers name and window for selecting the raster layer, and selecting the attribute
+    # to save the raster averages:
+    def rastlay(self, selecteditems, windw):
+        windw.close()
+        selected_vect_layer_name = selecteditems
+        if not selected_vect_layer_name:
+            self.errorwindow(2, selected_vect_layer_name=None)
+        else:
+            selected_vect_layer = QgsProject.instance().mapLayersByName(selected_vect_layer_name)[0]
+            loaded_layers = self.iface.mapCanvas().layers()
+            raster_layers = []
+            for layer in loaded_layers:
+                if layer.type() == QgsMapLayer.RasterLayer:
+                    raster_layers.append(layer)
+            loaded_layers = raster_layers
+            if not loaded_layers:
+                self.errorwindow(4, selected_vect_layer_name=None)
+            else:
+                loaded_layers_list = []
+                for lay in loaded_layers:
+                    layname = lay.name()
+                    loaded_layers_list.append(layname)
+                windw = QWidget()
+                windw.setWindowTitle("Raster layer and attribute selection")
+                label1 = QLabel()
+                label1.setText("Raster layer selection:")
+                label2 = QLabel()
+                label2.setText("Name of the raster average field:")
+                rastlist = QComboBox()
+                rastlist.clear()
+                rastlist.addItems(loaded_layers_list)
+                nameoffield = QLineEdit()
+                ok_button = QPushButton()
+                ok_button.setText("OK")
+                ok_button.clicked.connect(lambda: self.rasterlaycheck(windw, selected_vect_layer, rastlist.currentText(), nameoffield.text()))
+                vbox = QVBoxLayout()
+                vbox.addWidget(label1)
+                vbox.addWidget(rastlist)
+                vbox.addWidget(label2)
+                vbox.addWidget(nameoffield)
+                vbox.addWidget(ok_button)
+                windw.setLayout(vbox)
+                windw.show()
+
+
+    # Function for checking raster layer if it has a unique name and getting the selected attributes index:
+    def rasterlaycheck(self, windw, selected_vect_layer, selecteditems, nameoffield):
+        windw.close()
+        nameoffield = str(nameoffield)
+        if not nameoffield:
+            self.errorwindow(9, selected_vect_layer)
+        selected_rast_layer_name = selecteditems
+        if not selected_rast_layer_name:
+            self.errorwindow(7, selected_vect_layer)
+        else:
+            selected_rast_layer = QgsProject.instance().mapLayersByName(selected_rast_layer_name)[0]
+            self.rastertopolygon(selected_vect_layer, selected_rast_layer, nameoffield)
+
+
+    # Function to acquire the information for polygons and doing the averaging:
+    def rastertopolygon(self, selected_vect_layer, selected_rast_layer, nameoffield):
+        zonestat = QgsZonalStatistics(selected_vect_layer, selected_rast_layer, str(nameoffield), 1, QgsZonalStatistics.Mean)
+        zonestat.calculateStatistics(None)
+
+
+
+    # ---------------------------------------STRATIFIED SAMPLING-----------------------------------------------------------
+
+
+    # Window for asking if truly stratified sampling is desired:
+    def is_strat_sel(self):
+        windw_quest = QWidget()
+        windw_quest.setWindowTitle("Selection confirmation")
+        label = QLabel("Are you sure you want to use stratified sampling?")
+        yes_button = QPushButton("YES")
+        yes_button.clicked.connect(lambda: self.ok_for_strat(windw_quest))
+        no_button = QPushButton("NO")
+        no_button.clicked.connect(lambda: windw_quest.close())
+        hbox = QHBoxLayout()
+        hbox.addWidget(yes_button)
+        hbox.addWidget(no_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        windw_quest.setLayout(vbox)
+        windw_quest.show()
+
+
+    # Function for opening the stratum selection:
+    def ok_for_strat(self, windw_quest):
+        windw_quest.close()
+        self.stratlaysel()
+
+
+    # Function for selecting the layer for sampling:
+    def stratlaysel(self):
+        self.dlg.close()
+        # Setting the stratum determiner fields' id generator number to zero:
+        self.id_numb = 0
+        # Setting the used fields storing list to an empty one:
+        self.usedfields = []
+        # Setting the list containing the already used ids to an empty one:
+        self.usedidnames = []
+        # Setting the stratum determiner data storing list to empty:
+        self.stratdata = []
+        windw = QWidget()
+        windw.setWindowTitle("Layer selection")
+        label = QLabel("PLease select the layer for sampling:")
+        cbox = QComboBox()
+        lays = self.iface.mapCanvas().layers()
+        vect_lays = []
+        for layer in lays:
+            if layer.type() == QgsMapLayer.VectorLayer:
+                layer_name = layer.name()
+                vect_lays.append(layer_name)
+        cbox.addItems(vect_lays)
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.usestrat(windw, cbox.currentText()))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addWidget(ok_button)
+        hbox.addWidget(cancel_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(cbox)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for the settings of stratified sampling:
+    def usestrat(self, windw, layname):
+        windw.close()
+        layer = QgsProject.instance().mapLayersByName(layname)[0]
+        windw = QWidget()
+        windw.setWindowTitle("Stratification settings")
+        label1 = QLabel("If raster point averaging inside polygons is needed, please press AVERAGE RASTER button:")
+        rast_button = QPushButton("AVERAGE RASTER")
+        rast_button.clicked.connect(lambda: self.raster())
+        self.stratlist = QListWidget()
+        plus_button = QPushButton("+")
+        plus_button.clicked.connect(lambda: self.stratspec(layer, self.stratlist))
+        minus_button = QPushButton("-")
+        minus_button.clicked.connect(lambda: self.delstratspec(self.stratlist.selectedItems(), self.stratlist))
+        info_button = QPushButton("INFO")
+        info_button.clicked.connect(lambda: self.infostratspec(self.stratlist.selectedItems(), layer))
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.sampperstratum(windw, layer))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox1 = QHBoxLayout()
+        hbox1.addWidget(label1)
+        hbox1.addWidget(rast_button)
+        vbox = QVBoxLayout()
+        vbox.addLayout(hbox1)
+        vbox.addWidget(self.stratlist)
+        hbox2 = QHBoxLayout()
+        hbox2.addWidget(plus_button)
+        hbox2.addWidget(minus_button)
+        hbox2.addWidget(info_button)
+        vbox.addLayout(hbox2)
+        hbox3 = QHBoxLayout()
+        hbox3.addWidget(ok_button)
+        hbox3.addWidget(cancel_button)
+        vbox.addLayout(hbox3)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for adding new stratum determiner:
+    def stratspec(self, layer, stratlist):
+        windw = QWidget()
+        windw.setWindowTitle("Stratum determiner selection")
+        label = QLabel("Please select the field to use:")
+        cbox = QComboBox()
+        field_names = []
+        fields = layer.fields()
+        usedfields = []
+        for a in self.usedfields:
+            usedfields.append(a[1])
+        for field in fields:
+            field_index = layer.fields().indexFromName(field.name())
+            if field_index in usedfields:
+                pass
+            else:
+                field_names.append(field.name())
+        cbox.addItems(field_names)
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.getfielddata(cbox.currentText(), windw, stratlist, layer))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(cbox)
+        vbox.addWidget(ok_button)
+        vbox.addWidget(cancel_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for adding the id and field id for the list containing tha data of the determiner and getting the type of it(whether it is a discrete variable or a continuous):
+    def getfielddata(self, field, windw, stratlist, layer):
+        windw.close()
+        # Checking if there is a field selected:
+        is_error = 0
+        if not field:
+            is_error = is_error + 1
+        if is_error != 0:
+            self.error_for_field()
+        else:
+            # Creating a value that is 1 if no non-number element is found and 2 if there is any:
+            is_there_non_number = 1
+            field_id = layer.fields().indexFromName(str(field))
+            field_data_list = [field_id]
+            # Creating a list of the fields elements and simultaneously checking whether these elements are numbers or only usables as discrete values:
+            feats = layer.getFeatures()
+            field_elems = []
+            break_for_null = 0
+            for feat in feats:
+                attrs = feat.attributes()
+                field_elem = attrs[field_id]
+                if not field_elem:
+                    break_for_null = 1
+                    break
+                else:
+                    field_elem = str(field_elem)
+                    if is_there_non_number == 1:
+                        field_elem_is_numb = self.is_numb(field_elem)
+                        if field_elem_is_numb == False:
+                            is_there_non_number = 2
+                    field_elems.append(field_elem)
+            if break_for_null == 1:
+                self.error_for_NULL()
+            else:
+                if is_there_non_number == 2:
+                    field_data_list.append(is_there_non_number)
+                    self.val_ids(field_data_list, field_elems, stratlist, field, layer)
+                else:
+                    self.disc_or_cont(field_data_list, field_elems, stratlist, field, layer)
+
+
+    # function for checking if a value is a number:
+    def is_numb(self, value):
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
+
+
+    # Error window for field selection:
+    def error_for_field(self):
+        windw = QWidget()
+        windw.setWindowTitle("Error window")
+        label = QLabel("A field must be selected, please make sure that your layer does have fields!")
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(cancel_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for error window if there is a NULL field value:
+    def error_for_NULL(self):
+        windw = QWidget()
+        windw.setWindowTitle("Error_window")
+        label = QLabel("Please use a field that does not contain NULL values!")
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addStretch(2)
+        hbox.addWidget(ok_button)
+        hbox.addStretch(2)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for selecting between discrete and continuous values:
+    def disc_or_cont(self, field_data_list, field_elems, stratlist, field, layer):
+        # Setting the value for the type selected (1 is continuous and 2 is discrete):
+        self.sel_type = 1
+        windw = QWidget()
+        windw.setWindowTitle("value type selection")
+        label = QLabel("Please select the correct value type for stratum determining field:")
+        label1 = QLabel("Use values as continuous data:")
+        label2 = QLabel("Use values as discrete data")
+        button1 = QRadioButton()
+        button1.setChecked(True)
+        button1.toggled.connect(lambda: self.cont_but())
+        button2 = QRadioButton()
+        button2.toggled.connect(lambda: self.disc_but())
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.use_cont_or_disc(field_data_list, field_elems, windw, stratlist, field, layer))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addWidget(label1)
+        hbox.addWidget(button1)
+        hbox.addStretch(5)
+        hbox.addWidget(label2)
+        hbox.addWidget(button2)
+        hbox2 = QHBoxLayout()
+        hbox2.addStretch(15)
+        hbox2.addWidget(ok_button)
+        hbox2.addWidget(cancel_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        vbox.addLayout(hbox2)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for the action of continuous value radio button:
+    def cont_but(self):
+        self.sel_type = 1
+
+
+    # Function for the action of discrete value radio button:
+    def disc_but(self):
+        self.sel_type = 2
+
+
+    # Function for selecting the id generation of field elements or ranges based on the previous selection:
+    def use_cont_or_disc(self, field_data_list, field_elems, windw, stratlist, field, layer):
+        windw.close()
+        if self.sel_type == 1:
+            field_data_list.append(self.sel_type)
+            self.range_ids(field_data_list, field_elems, stratlist, field, layer)
+        if self.sel_type == 2:
+            field_data_list.append(self.sel_type)
+            self.val_ids(field_data_list, field_elems, stratlist, field, layer)
+
+
+    # Function for generating ids for ranges of the field values (when they are used as continuous types):
+    def range_ids(self, field_data_list, field_elems, stratlist, field, layer):
+        field_elems = [float(i) for i in field_elems]
+        whole_field_max = max(field_elems)
+        self.current_min = min(field_elems)
+        whole_field_min = copy.deepcopy(self.current_min)
+        self.serial_for_ranges = 1
+        self.this_usedids = []
+        self.current_ranges = []
+        self.used_serials = []
+        windw = QWidget()
+        windw.setWindowTitle("Range selection for continuous values")
+        listofranges = QListWidget()
+        plus_button = QPushButton("+")
+        plus_button.clicked.connect(lambda: self.add_range(whole_field_max, listofranges))
+        minus_button = QPushButton("-")
+        minus_button.clicked.connect(lambda: self.del_range(listofranges.selectedItems()[0], listofranges, whole_field_min))
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.finish_range(windw, field_data_list, stratlist, field, layer, whole_field_max))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox1 = QHBoxLayout()
+        hbox1.addWidget(plus_button)
+        hbox1.addWidget(minus_button)
+        hbox2 = QHBoxLayout()
+        hbox2.addWidget(ok_button)
+        hbox2.addWidget(cancel_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(listofranges)
+        vbox.addLayout(hbox1)
+        vbox.addLayout(hbox2)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for adding new range:
+    def add_range(self, whole_field_max, listofranges):
+        if float(self.current_min) == float(whole_field_max):
+            window_er = QWidget()
+            window_er.setWindowTitle("Error window")
+            label_er = QLabel("The last range is already assigned, please proceed to the finalization of these ranges!")
+            ok_button_er = QPushButton("OK")
+            ok_button_er.clicked.connect(lambda: window_er.close())
+            vbox_er = QVBoxLayout()
+            vbox_er.addWidget(label_er)
+            hbox = QHBoxLayout()
+            hbox.addStretch(5)
+            hbox.addWidget(ok_button_er)
+            hbox.addStretch(5)
+            vbox_er.addLayout(hbox)
+            window_er.setLayout(vbox_er)
+            window_er.show()
+        else:
+            windw = QWidget()
+            windw.setWindowTitle("Range settings")
+            label = QLabel("Please select the range and enter an ID:" + "\n" + "(Note that the maximum of the values in the selected field is : " + str(whole_field_max) + "\nAnd also note that the assigned upper value of the range is not included[that is the begining of the next range]\nexcept for the last one)")
+            label1 = QLabel("Range: " + str(self.current_min) + "- ")
+            newmax = QLineEdit()
+            label2 = QLabel("ID: ")
+            this_id = QLineEdit()
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: self.assign_range(whole_field_max, listofranges, newmax.text(), this_id.text(), windw))
+            cancel_button = QPushButton("CANCEL")
+            cancel_button.clicked.connect(lambda: windw.close())
+            hbox1 = QHBoxLayout()
+            hbox1.addWidget(label1)
+            hbox1.addWidget(newmax)
+            hbox2 = QHBoxLayout()
+            hbox2.addWidget(label2)
+            hbox2.addWidget(this_id)
+            hbox3 = QHBoxLayout()
+            hbox3.addWidget(ok_button)
+            hbox3.addWidget(cancel_button)
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addLayout(hbox1)
+            vbox.addLayout(hbox2)
+            vbox.addLayout(hbox3)
+            windw.setLayout(vbox)
+            windw.show()
+
+
+    # Function for checking the previous settings and if correct assign the values:
+    def assign_range(self, whole_field_max, listofranges, newmax, this_id, windw):
+        windw.close()
+        newmax = float(newmax)
+        error_text = []
+        is_error = 0
+        is_numb_max = self.is_numb(newmax)
+        if not newmax:
+            is_error = is_error + 1
+            error_text.append("A range maximum must be given!")
+        else:
+            if is_numb_max == False:
+                error_text.append("The given maximum must be a number!")
+                is_error = is_error + 1
+            if is_numb_max == True:
+                if newmax > float(whole_field_max):
+                    is_error = is_error + 1
+                    error_text.append("The last range can not exceed the maximum of the field values!")
+                if newmax < float(self.current_min):
+                    is_error = is_error + 1
+                    error_text.append("The maximum of the range must be over the given minimum!")
+        if not this_id:
+            is_error = is_error + 1
+            error_text.append("A range ID must be given!")
+        is_repeated_id = 0
+        for elem in self.usedidnames:
+            if this_id in elem[1]:
+                is_repeated_id = is_repeated_id + 1
+        usedids = []
+        for ids in self.this_usedids:
+            usedids.append(ids[1])
+        if this_id in usedids:
+            is_repeated_id = is_repeated_id + 1
+        if is_repeated_id != 0:
+            is_error = is_error + 1
+            error_text.append("The ID must be unique, already used IDs are not accepted!")
+        if is_error != 0:
+            self.error_range(error_text, whole_field_max, listofranges)
+        else:
+            usedids = [self.serial_for_ranges, this_id]
+            self.this_usedids.append(usedids)
+            this_range = [self.serial_for_ranges, this_id, self.current_min, newmax]
+            self.current_ranges.append(this_range)
+            this_range = ', '.join(map(str, this_range))
+            listofranges.addItem(this_range)
+            self.used_serials.append(self.serial_for_ranges)
+            self.current_min = newmax
+            self.serial_for_ranges = self.serial_for_ranges + 1
+
+
+    # Function for error window for range assignment:
+    def error_range(self, error_text, whole_field_max, listofranges):
+        windw = QWidget()
+        windw.setWindowTitle("Error window")
+        label = QLabel("The following error(s) occurred:")
+        textbox = QTextBrowser()
+        error_text = '\n'.join(error_text)
+        textbox.append(error_text)
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.reopen_range(windw, whole_field_max, listofranges))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addWidget(ok_button)
+        hbox.addWidget(cancel_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(textbox)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for reopening range selection:
+    def reopen_range(self, windw, whole_field_max, listofranges):
+        windw.close()
+        self.add_range(whole_field_max, listofranges)
+
+
+    # Function for deleting assigned ranges:
+    def del_range(self, item, listofranges, whole_field_min):
+        if not item:
+            windw = QWidget()
+            windw.setWindowTitle("Error window")
+            label = QLabel("Please select a range to delete!")
+            cancel_button = QPushButton("CANCEL")
+            cancel_button.clicked.connect(lambda: windw.close())
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addWidget(cancel_button)
+            windw.setLayout(vbox)
+            windw.show()
+        else:
+            item = item.text()
+            item_serial = str()
+            for a in item:
+                if a != ",":
+                    item_serial = item_serial + str(a)
+                else:
+                    break
+            item_serial = int(item_serial)
+            serials_to_del = []
+            listelems = [listofranges.item(i) for i in range(listofranges.count())]
+            for x in self.used_serials:
+                if item_serial <= x:
+                    serials_to_del.append(x)
+            for y in serials_to_del:
+                for ids in self.this_usedids:
+                    if ids[0] == y:
+                        ind = self.this_usedids.index(ids)
+                        del self.this_usedids[ind]
+                for rngs in self.current_ranges:
+                    if rngs[0] == y:
+                        ind = self.current_ranges.index(rngs)
+                        del self.current_ranges[ind]
+                indofser = self.used_serials.index(y)
+                del self.used_serials[indofser]
+                for elem in listelems:
+                    elem_text = elem.text()
+                    elem_ser = str()
+                    for b in elem_text:
+                        if b != ",":
+                            elem_ser = elem_ser + str(b)
+                        else:
+                            break
+                    if int(elem_ser) == int(y):
+                        listofranges.takeItem(listofranges.row(elem))
+            current_maxes = [float(whole_field_min)]
+            for elem in self.current_ranges:
+                current_maxes.append(elem[3])
+            newmax = max(current_maxes)
+            self.current_min = newmax
+
+
+    # Function for finishing the assigned ranges:
+    def finish_range(self, windw, field_data_list, stratlist, field, layer, whole_field_max):
+        if float(self.current_min) != float(whole_field_max):
+            erwind = QWidget()
+            erwind.setWindowTitle("Error window")
+            label = QLabel("Please continue the range selection until the last is assigned (when you reach the maximum of values)!")
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: erwind.close())
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addWidget(ok_button)
+            erwind.setLayout(vbox)
+            erwind.show()
+        else:
+            windw.close()
+            appendlist = []
+            for ids in self.this_usedids:
+                thislist = [ids[1]]
+                for elem in self.current_ranges:
+                    if elem[1] == ids[1]:
+                        thislist.append(elem[2])
+                        thislist.append(elem[3])
+                appendlist.append(thislist)
+            field_data_list.append(appendlist)
+            self.id_numb = self.id_numb + 1
+            field_data_list.insert(0, self.id_numb)
+            field_data_list.append(whole_field_max)
+            self.stratdata.append(field_data_list)
+            newusedids = [self.id_numb]
+            idlist = []
+            for ids in self.this_usedids:
+                idlist.append(ids[1])
+            newusedids.append(idlist)
+            self.usedidnames.append(newusedids)
+            list_to_stratlist = [self.id_numb, field, "Continuous data type", whole_field_max]
+            list_to_stratlist = ', '.join(map(str, list_to_stratlist))
+            stratlist.addItem(list_to_stratlist)
+            field_id = layer.fields().indexFromName(field)
+            self.usedfields.append([self.id_numb, field_id])
+
+
+
+
+    # Function for ID assignment window for discrete field values:
+    def val_ids(self, field_data_list, field_elems, stratlist, field, layer):
+        windw = QWidget()
+        windw.setWindowTitle("ID selection")
+        vbox = QVBoxLayout()
+        label_dict = {}
+        line_edit_dict = {}
+        hbox_dict = {}
+        elem_count = 1
+        # Creating a list to store the used elements with their serial and element name, to use it for the id and value assignment:
+        # It is a list of lists containing the serial number and the elem name
+        usedelems = []
+        # A list containing just the name of the used elements to know if they are already got an ID selection line:
+        usedelems2 = []
+        for elem in field_elems:
+            if elem in usedelems2:
+                pass
+            else:
+                label_dict["label" + str(elem_count)] = QLabel("Please enter the ID of the field elem: " + str(elem))
+                line_edit_dict["line" + str(elem_count)] = QLineEdit()
+                hbox_dict["hbox" + str(elem_count)] = QHBoxLayout()
+                thislabel = label_dict.get("label" + str(elem_count))
+                thisline = line_edit_dict.get("line" + str(elem_count))
+                thishbox = hbox_dict.get("hbox" + str(elem_count))
+                thishbox.addWidget(thislabel)
+                thishbox.addWidget(thisline)
+                vbox.addLayout(thishbox)
+                usedelems.append([elem_count, elem])
+                usedelems2.append(elem)
+                elem_count = elem_count + 1
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.check_disc_ids(field_data_list, field_elems, stratlist, field, layer, windw, line_edit_dict, usedelems, usedelems2))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addWidget(ok_button)
+        hbox.addWidget(cancel_button)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for getting and checking assignment:
+    def check_disc_ids(self, field_data_list, field_elems, stratlist, field, layer, windw, line_edit_dict, usedelems, usedelems2):
+        windw.close()
+        is_error = 0
+        is_missing_value = 0
+        missinglist = []
+        is_used_value = 0
+        usedlist = []
+        for elem in usedelems:
+            counter = elem[0]
+            thisline_er = line_edit_dict.get("line" + str(counter))
+            thisid_er = thisline_er.text()
+            if not thisid_er:
+                is_missing_value = is_missing_value + 1
+                is_error = is_error + 1
+                missinglist.append(elem)
+            else:
+                if thisid_er in self.usedidnames or thisid_er in usedelems2:
+                    is_error = is_error + 1
+                    is_used_value = is_used_value + 1
+                    usedlist.append(elem)
+        if is_error != 0:
+            windw = QWidget()
+            windw.setWindowTitle("Error window")
+            label = QLabel("The following error(s) occured:")
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            if is_missing_value != 0:
+                label2 = QLabel("The following field element(s) doesn't have an ID assigned:")
+                textbox = QTextBrowser()
+                missinglist = ', '.join(map(str, missinglist))
+                textbox.append(missinglist)
+                vbox.addWidget(label2)
+                vbox.addWidget(textbox)
+            if is_used_value != 0:
+                label3 = QLabel("The following field element(s) got an ID which was already used:")
+                textbox2 = QTextBrowser()
+                usedlist = ', '.join(map(str, usedlist))
+                textbox2.append(usedlist)
+                vbox.addWidget(label3)
+                vbox.addWidget(textbox2)
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: self.ok_repoen_disc(field_data_list, field_elems, stratlist, field, layer, windw))
+            cancel_button = QPushButton("CANCEL")
+            cancel_button.clicked.connect(lambda: windw.close())
+            hbox = QHBoxLayout()
+            hbox.addWidget(ok_button)
+            hbox.addWidget(cancel_button)
+            vbox.addLayout(hbox)
+            windw.setLayout(vbox)
+            windw.show()
+        else:
+            ids_list = []
+            here_used_ids = []
+            for elem in usedelems:
+                thisline = line_edit_dict.get("line" + str(elem[0]))
+                thisid = thisline.text()
+                thislist = [thisid, elem[1]]
+                ids_list.append(thislist)
+                here_used_ids.append(thisid)
+            field_data_list.append(ids_list)
+            self.id_numb = self.id_numb + 1
+            field_data_list.insert(0, self.id_numb)
+            self.stratdata.append(field_data_list)
+            newusedids = [self.id_numb]
+            newusedids.append(here_used_ids)
+            self.usedidnames.append(newusedids)
+            list_to_stratlist = [self.id_numb, field, "Discrete data type"]
+            list_to_stratlist = ', '.join(map(str, list_to_stratlist))
+            stratlist.addItem(list_to_stratlist)
+            field_id = layer.fields().indexFromName(field)
+            self.usedfields.append([self.id_numb, field_id])
+
+
+    # Function for reopen the id assignment window for discrete values if an error was found and ok is pressed:
+    def ok_repoen_disc(self, field_data_list, field_elems, stratlist, field, layer, windw):
+        windw.close()
+        self.val_ids(field_data_list, field_elems, stratlist, field, layer)
+
+
+
+
+    # Function for deleting stratification determiner:
+    def delstratspec(self, stratdet, stratlist):
+        stratdet = stratdet[0].text()
+        if not stratdet:
+            windw = QWidget()
+            windw.setWindowTitle("Error window")
+            label = QLabel("Please select a stratification determiner!")
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: windw.close())
+            hbox = QHBoxLayout()
+            hbox.addStretch(2)
+            hbox.addWidget(ok_button)
+            hbox.addStretch(2)
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addLayout(hbox)
+            windw.setLayout(vbox)
+            windw.show()
+        else:
+            indnumb = str()
+            for ltr in stratdet:
+                if ltr != ",":
+                    indnumb = indnumb + str(ltr)
+                else:
+                    break
+            strat_id = int(indnumb)
+            for elem in self.usedfields:
+                if int(elem[0]) == strat_id:
+                    ind = self.usedfields.index(elem)
+                    del self.usedfields[ind]
+            for elem in self.usedidnames:
+                if int(elem[0]) == strat_id:
+                    ind = self.usedidnames.index(elem)
+                    del self.usedidnames[ind]
+            for elem in self.stratdata:
+                if int(elem[0]) == strat_id:
+                    ind = self.stratdata.index(elem)
+                    del self.stratdata[ind]
+            all_stratdet = [stratlist.item(i) for i in range(stratlist.count())]
+            for elem in all_stratdet:
+                elem_text = elem.text()
+                elem_ser = str()
+                for b in elem_text:
+                    if b != ",":
+                        elem_ser = elem_ser + str(b)
+                    else:
+                        break
+                if int(elem_ser) == strat_id:
+                    stratlist.takeItem(stratlist.row(elem))
+
+
+
+
+    # Function for getting the information about the selected stratification determiner:
+    def infostratspec(self, spec, layer):
+        spec = spec[0].text()
+        indnumb = str()
+        for ltr in spec:
+            if ltr != ",":
+                indnumb = indnumb + str(ltr)
+            else:
+                break
+        for tlist in self.stratdata:
+            if int(tlist[0]) == int(indnumb):
+                speclist = tlist
+        fields = layer.fields()
+        field_index = int(speclist[1])
+        field_name = fields[field_index].name()
+        id_value = str()
+        if speclist[2] == 1:
+            discrete_or_continuous = "Continuous variable"
+            for elem in speclist[3]:
+                id_value = id_value + str(elem[0]) + ": " + str(elem[1]) + "-" + str(elem[2]) + "\n"
+        else:
+            discrete_or_continuous = "Discrete variable"
+            for elem in speclist[3]:
+                id_value = id_value + str(elem[0]) + ": " + str(elem[1]) + "\n"
+        windw = QWidget()
+        windw.setWindowTitle("Information window")
+        label = QLabel("Stratum determiner information:")
+        textbox = QTextBrowser()
+        appendtext = "ID: " + str(speclist[0]) + "\n" + "FIELD: " + str(field_name) + "\n" + "TYPE: " + str(discrete_or_continuous) + "\n" + "ID/VALUE PAIRS: " + "\n" + id_value
+        if speclist[2] == 1:
+            appendtext = appendtext + "MAXIMUM OF THE WHOLE RANGE: " + str(speclist[4])
+        textbox.append(appendtext)
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addStretch(2)
+        hbox.addWidget(ok_button)
+        hbox.addStretch(2)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(textbox)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for error_window for time out of stratum name generation:
+    def error_timeout(self):
+        windw = QWidget()
+        windw.setWindowTitle("Error window")
+        label = QLabel("Please make sure that you don't have too much fields with tha name stratum_name + a number!")
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: windw.close())
+        hbox = QHBoxLayout()
+        hbox.addStretch(2)
+        hbox.addWidget(ok_button)
+        hbox.addStretch(2)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for sorting the stratum determiner list for stratum generation (by the field ID value):
+    def sort_for_strat(self, elem):
+        return elem[1]
+
+
+    # Function for selecting sample amount of each stratum:
+    def sampperstratum(self, windw, layer):
+        field_names = []
+        for f in layer.fields():
+            field_names.append(f.name())
+        probenumb = 1
+        id_error = 0
+        timeout = time.time() + 60
+        stratname_index = int()
+        while True:
+            stratname = "str_nm" + str(probenumb)
+            if stratname not in field_names:
+                layer.dataProvider().addAttributes([QgsField(stratname, QVariant.String)])
+                layer.updateFields()
+                stratname_index = layer.fields().indexFromName(stratname)
+                break
+            if time.time() > timeout:
+                id_error = 1
+                break
+            else:
+                probenumb = probenumb + 1
+        if id_error == 1:
+            self.error_timeout()
+        else:
+            windw.close()
+            stratdata = sorted(self.stratdata, key=self.sort_for_strat)
+            fields = layer.fields()
+            first_strat = 1
+            happendvalue = str(1)
+            changetovalue = str()
+            layer.startEditing()
+            for field in fields:
+                field_id = layer.fields().indexFromName(field.name())
+                for elem in stratdata:
+                    if int(elem[1]) == int(field_id):
+                        happendvalue = happendvalue + str(2)
+                        for feat in layer.getFeatures():
+                            attrs = feat.attributes()
+                            value = attrs[field_id]
+                            if elem[2] == 1:
+                                happendvalue = happendvalue + str(3)
+                                for rang in elem[3]:
+                                    if float(rang[1]) <= float(value) < float(rang[2]) or float(value) == float(rang[2]) == float(elem[4]):
+                                        happendvalue = happendvalue + str(4)
+                                        if first_strat == 1:
+                                            changeto = str(rang[0])
+                                        else:
+                                            changeto = str(attrs[stratname_index]) + str(rang[0])
+                                        changetovalue = changetovalue + "," + str(rang[0])
+                                        layer.changeAttributeValue(feat.id(), stratname_index, str(changeto))
+                                        break
+                            if elem[2] == 2:
+                                happendvalue = happendvalue + str(3)
+                                for val in elem[3]:
+                                    if str(value) == str(val[1]):
+                                        happendvalue = happendvalue + str(4)
+                                        if first_strat == 1:
+                                            changeto = str(val[0])
+                                        else:
+                                            changeto = str(attrs[stratname_index]) + str(val[0])
+                                        changetovalue = changetovalue + "," + str(val[0])
+                                        layer.changeAttributeValue(feat.id(), stratname_index, str(changeto))
+                                        break
+                        first_strat = first_strat + 1
+                        this_ind = stratdata.index(elem)
+                        del stratdata[this_ind]
+                        break
+            self.strat_is_over(layer, stratname_index)
+
+
+    # Function for selecting between using and not using oversampling:
+    def strat_is_over(self, layer, stratname_index):
+        windw = QWidget()
+        windw.setWindowTitle("Oversampling selection")
+        label = QLabel("If oversampling is desired in each stratum, please select OVERSAMPLING button,\nif not, please select REGULAR button)")
+        oversample_button = QPushButton("OVERSAMPLING")
+        oversample_button.clicked.connect(lambda: self.strat_samp(windw, 1, layer, stratname_index))
+        regular_button = QPushButton("REGULAR")
+        regular_button.clicked.connect(lambda: self.strat_samp(windw, 2, layer, stratname_index))
+        hbox = QHBoxLayout()
+        hbox.addWidget(oversample_button)
+        hbox.addWidget(regular_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for opening the stratum sampling settings window:
+    def strat_samp(self, windw_prev, selval, layer, stratname_index):
+        windw_prev.close()
+        strat_info = [int(selval)]
+        strats = []
+        feats = layer.getFeatures()
+        for feat in feats:
+            attrs = feat.attributes()
+            this_strat = attrs[stratname_index]
+            if this_strat in strats:
+                pass
+            else:
+                strats.append(this_strat)
+        # list for storing lists of stratums and their IDs (for retrieving information from qlineedit storing dictionaries [ID, stratum])
+        strat_samp_data = []
+        strat_dict = {}
+        strat_line_edit_dict = {}
+        strat_hbox_dict = {}
+        strat_over_label = {}
+        strat_over_line = {}
+        strat_over_hbox = {}
+        strat_over_vbox = {}
+        windw = QWidget()
+        windw.setWindowTitle("Stratum sampling settings")
+        label = QLabel("Please enter the sample (and oversample) number for each stratum:")
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        counter = 1
+        for strat in strats:
+            this_data = [int(counter), strat]
+            strat_samp_data.append(this_data)
+            strat_dict["stratum" + str(counter)] = QLabel("Please enter the number of desired sample for the stratum: " + str(strat))
+            strat_line_edit_dict["stratum" + str(counter)] = QLineEdit()
+            strat_hbox_dict["hbox" + str(counter)] = QHBoxLayout()
+            thislabel = strat_dict.get("stratum" + str(counter))
+            thisline = strat_line_edit_dict.get("stratum" + str(counter))
+            thishbox = strat_hbox_dict.get("hbox" + str(counter))
+            thishbox.addWidget(thislabel)
+            thishbox.addWidget(thisline)
+            if selval == 1:
+                strat_over_label["stratum" + str(counter)] = QLabel("Oversample number:")
+                strat_over_line["stratum" + str(counter)] = QLineEdit()
+                strat_over_hbox["stratum_hbox" + str(counter)] = QHBoxLayout()
+                strat_over_vbox["stratum_vbox" + str(counter)] = QVBoxLayout()
+                overlabel = strat_over_label.get("stratum" + str(counter))
+                overline = strat_over_line.get("stratum" + str(counter))
+                overhbox = strat_over_hbox.get("stratum_hbox" + str(counter))
+                overvbox = strat_over_vbox.get("stratum_vbox" + str(counter))
+                overhbox.addWidget(overlabel)
+                overhbox.addWidget(overline)
+                overvbox.addLayout(thishbox)
+                overvbox.addLayout(overhbox)
+                vbox.addLayout(overvbox)
+            else:
+                vbox.addLayout(thishbox)
+            counter = counter + 1
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.finish_strat(strat_samp_data, strat_line_edit_dict, strat_over_line, selval, strat_info, layer, stratname_index, windw))
+        cancel_button = QPushButton("CANCEL")
+        cancel_button.clicked.connect(lambda: windw.close())
+        hbox_button = QHBoxLayout()
+        hbox_button.addWidget(ok_button)
+        hbox_button.addWidget(cancel_button)
+        vbox.addLayout(hbox_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for checking the assigned sample and oversample numbers and then creating the final list storing them:
+    def finish_strat(self, strat_samp_data, strat_line_edit_dict, strat_over_line, selval, strat_info, layer, stratname_index, windw_prev):
+        windw_prev.close()
+        is_error = 0
+        strat_list_to_append = []
+        is_samp = 0
+        is_samp_int = 0
+        is_samp_b_zero = 0
+        is_oversamp = 0
+        is_oversamp_int = 0
+        is_oversamp_b_zero = 0
+        for elem in strat_samp_data:
+            thislist = []
+            this_numb = strat_line_edit_dict.get("stratum" + str(elem[0]))
+            this_numb = this_numb.text()
+            if not this_numb:
+                is_samp = is_samp + 1
+                is_error = is_error + 1
+            else:
+                isint = self.integer_check(this_numb)
+                if isint == 1:
+                    is_samp_int = is_samp_int + 1
+                    is_error = is_error + 1
+                else:
+                    this_numb = int(this_numb)
+                    if this_numb < 0:
+                        is_samp_b_zero = is_samp_b_zero + 1
+                        is_error = is_error + 1
+                    else:
+                        thislist.append(elem[1])
+                        thislist.append(this_numb)
+            if selval ==  1:
+                this_ov = strat_over_line.get("stratum" + str(elem[0]))
+                this_ov = this_ov.text()
+                if not this_ov:
+                    is_oversamp = is_oversamp + 1
+                    is_error = is_error + 1
+                else:
+                    ovr_isint = self.integer_check(this_ov)
+                    if ovr_isint == 1:
+                        is_oversamp_int = is_oversamp_int + 1
+                        is_error = is_error + 1
+                    else:
+                        this_ov = int(this_ov)
+                        if this_ov < 0:
+                            is_oversamp_b_zero = is_oversamp_b_zero + 1
+                            is_error = is_error + 1
+                        else:
+                            thislist.append(this_ov)
+            strat_list_to_append.append(thislist)
+        if is_error != 0:
+            error_text = []
+            windw_er = QWidget()
+            windw_er.setWindowTitle("Error window")
+            label = QLabel("The following errors occured:")
+            if is_samp != 0:
+                error_text.append("There are one or more sample numbers that are not given")
+            if is_samp_int !=0:
+                error_text.append("There are one or more sample numbers that are not given in integer forms")
+            if is_samp_b_zero != 0:
+                error_text.append("There are one or more sample numbers that are below zero")
+            if selval == 1:
+                if is_oversamp != 0:
+                    error_text.append("There are one or more oversample numbers that are not given")
+                if is_oversamp_int != 0:
+                    error_text.append("There are one or more oversample numbers that are not given in integer form")
+                if is_oversamp_b_zero != 0:
+                    error_text.append("There are one or more oversample numbers that are below zero")
+            error_text = '\n'.join(error_text)
+            textbox = QTextBrowser()
+            textbox.append(error_text)
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: self.strat_samp(windw_er, selval, layer, stratname_index))
+            hbox = QHBoxLayout()
+            hbox.addStretch(6)
+            hbox.addWidget(ok_button)
+            hbox.addStretch(6)
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addWidget(textbox)
+            vbox.addLayout(hbox)
+            windw_er.setLayout(vbox)
+            windw_er.show()
+        else:
+            strat_info.append(strat_list_to_append)
+            self.do_samp_strat(strat_info, layer, stratname_index)
+
+
+    # Function for doing the sampling for the different strata:
+    def do_samp_strat(self, strat_info, layer, stratname_index):
+        usedlays = []
+        fields = layer.fields()
+        origcrs = layer.crs().authid()
+        if strat_info[0] == 2:
+            for elem in strat_info[1]:
+                feats = layer.getFeatures()
+                sampl_lay = QgsVectorLayer("Polygon?crs={0}".format(origcrs), "temp_lay", "memory")
+                usedlays.append(sampl_lay)
+                pr = sampl_lay.dataProvider()
+                for f in fields:
+                    pr.addAttributes([f])
+                sampl_lay.updateFields()
+                for feat in feats:
+                    attrs = feat.attributes()
+                    strat = attrs[stratname_index]
+                    if elem[0] == strat:
+                        pr.addFeatures([feat])
+                sampl_lay.updateExtents()
+                oversample = 0
+                is_oversampling = 1
+                is_windw = 0
+                is_from_strat = 1
+                # Grid placement function called with default values for functionalities of the sampling from non stratified data:
+                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, is_oversampling, 0, is_windw, is_from_strat, elem[0])
+        if strat_info[0] == 1:
+            for elem in strat_info[1]:
+                feats = layer.getFeatures()
+                sampl_lay = QgsVectorLayer("Polygon?crs={0}".format(origcrs), "temp_lay", "memory")
+                usedlays.append(sampl_lay)
+                pr = sampl_lay.dataProvider()
+                for f in fields:
+                    pr.addAttributes([f])
+                sampl_lay.updateFields()
+                for feat in feats:
+                    attrs = feat.attributes()
+                    strat = attrs[stratname_index]
+                    if elem[0] == strat:
+                        pr.addFeatures([feat])
+                sampl_lay.updateExtents()
+                oversample = elem[2]
+                is_oversampling = 2
+                is_windw = 0
+                is_from_strat = 1
+                # Grid placement function called with default values for functionalities of the sampling from non stratified data:
+                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, is_oversampling, 0, is_windw, is_from_strat, elem[0])
+
+
+
+
+
+    #-------------------------------------GRTS AERIAL--------------------------------------------------------------------
 
 
 
@@ -253,10 +1525,13 @@ class myplugin:
     # Function that closes the error window and opens the sampling settings window again:
     def error_ok(self, windw):
         windw.close()
-        self.samplinglayer()
+        self.dlg.show()
+        result = self.dlg.exec_()
+        if result:
+            self.iscorrect(self.dlg.cbox.currentText(), self.dlg.numb.text(), self.dlg.custom_quadr.text(), self.quadrchecker, self.dlg.oversample.text(), self.is_oversampling)
 
 
-    # Checking if the number is an integer:
+    # Checking if the number is an integer (returns 0 if it is an integer and 1 if it is not):
     def integer_check(self, n):
         notintvalue = 0
         try:
@@ -297,8 +1572,30 @@ class myplugin:
         oversample.setEnabled(True)
 
 
+    # Function of the window asking back if the settings are correct:
+    def iscorrect(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling):
+        windw = QWidget()
+        windw.setWindowTitle("Settings accepting")
+        label = QLabel("Are you sure that everything is correctly set?\nIf yes please press YES! If not please press NO!")
+        no_button = QPushButton("NO")
+        no_button.clicked.connect(lambda: self.error_ok(windw))
+        yes_button = QPushButton("YES")
+        # Calling the grid placement function with values that are set default because they are needed if the function is called from stratification:
+        yes_button.clicked.connect(lambda: self.gridplacement(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw, 1, 0, 0, 0))
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        hbox = QHBoxLayout()
+        hbox.addWidget(yes_button)
+        hbox.addWidget(no_button)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
     # Grid placement on the layer:
-    def gridplacement(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling):
+    def gridplacement(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw, is_windw, is_from_strat, strat_name):
+        if is_windw == 1:
+            windw.close()
         erro_text = []
         is_error = 0
         samp_number_problem = 0
@@ -368,7 +1665,8 @@ class myplugin:
         if is_error != 0:
             self.errorforquadr(erro_text)
         else:
-            layer = QgsProject.instance().mapLayersByName(layer)[0]
+            if is_from_strat == 0:
+                layer = QgsProject.instance().mapLayersByName(layer)[0]
             layextent = layer.extent()
             xextentmax = layextent.xMaximum()
             xextentmin = layextent.xMinimum()
@@ -403,8 +1701,6 @@ class myplugin:
             celly = (yextentmax-yextentmin) / (2**cellgen)
             addx = (cellx * (2**cellgen)) / ((2**cellgen) - 1)
             addy = addx
-            xextentmax = xextentmax + addx
-            yextentmax = yextentmax + addy
             randfractx = round(uniform(1, 100), 1)
             randfracty = round(uniform(1, 100), 1)
             addx1 = addx / randfractx
@@ -432,11 +1728,11 @@ class myplugin:
             parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,'OUTPUT': 'TEMPORARY_OUTPUT', 'HOVERLAY': 0, 'VOVERLAY': 0}
             grid = processing.run('qgis:creategrid', parameters)
             gridlay = grid['OUTPUT']
-            self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number, oversample, is_oversampling)
+            self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number, oversample, is_oversampling, is_from_strat, strat_name)
 
 
     # Creating the order of cell IDs to match the here created hierarchical order of cell serial numbers:
-    def gridorder(self, cellgen, cellnumb, layer, gridlayer, samp_numb, oversample, is_oversampling):
+    def gridorder(self, cellgen, cellnumb, layer, gridlayer, samp_numb, oversample, is_oversampling, is_from_strat, strat_name):
         numblist = []
         for i in range(1, (cellnumb + 1)):
             numblist.append(i)
@@ -495,7 +1791,7 @@ class myplugin:
             ordnumb = orderlist[indofid]
             gridlayer.changeAttributeValue(feat.id(), attrindex, ordnumb)
         gridlayer.commitChanges()
-        self.sampl(gridlayer, layer, samp_numb, oversample)
+        self.sampl(gridlayer, layer, samp_numb, oversample, is_from_strat, strat_name)
 
 
     # Defining a function for grid sorting in the next section:
@@ -504,7 +1800,7 @@ class myplugin:
 
 
     # Function for creating the sample line:
-    def sampl(self, gridlayer, layer, samp_numb, oversample):
+    def sampl(self, gridlayer, layer, samp_numb, oversample, is_from_strat, strat_name):
         # Creating an ID field (named grts_id) for polygons for future references (values will be assigned in the next section):
         field_names = []
         for f in layer.fields():
@@ -646,7 +1942,7 @@ class myplugin:
                 # Assigning this final list to the final list of the quadrant line information:
                 sample_order_list.append(final_list)
             # Calling the next function to sample the line created in here:
-            self.getsample(sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer, oversample)
+            self.getsample(sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer, oversample, is_from_strat, strat_name)
 
 
     # Function for get the element for samples sorting in the next section:
@@ -655,7 +1951,7 @@ class myplugin:
 
 
     # Function for getting the sample:
-    def getsample(self, sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer, oversample):
+    def getsample(self, sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer, oversample, is_from_strat, strat_name):
         # Getting the line points from a systematic sampling method:
         recent_elem = randint(1, line_length)
         line_numbers = [recent_elem]
@@ -682,7 +1978,11 @@ class myplugin:
                             samples.append(this_samp)
         # Creating a layer for the sample points (with 4 attributes, order_number, serial_number, x_coordinate, y_coordinate):
         origcrs = layer.crs().authid()
-        sample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "sample_points", "memory")
+        if is_from_strat == 0:
+            sample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "sample_points", "memory")
+        if is_from_strat == 1:
+            namelay = "sample_points" + str(strat_name)
+            sample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), namelay, "memory")
         pr = sample_point_layer.dataProvider()
         sample_point_layer.startEditing()
         pr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
@@ -690,7 +1990,11 @@ class myplugin:
         QgsProject.instance().addMapLayer(sample_point_layer)
         # Creating a layer for the oversample points if oversampling is selected:
         if self.is_oversampling == 2:
-            oversample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "oversample_points", "memory")
+            if is_from_strat == 0:
+                oversample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), "oversample_points", "memory")
+            if is_from_strat == 1:
+                nameovlay = "oversample_points" + str(strat_name)
+                oversample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), nameovlay, "memory")
             opr = oversample_point_layer.dataProvider()
             oversample_point_layer.startEditing()
             opr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
@@ -769,126 +2073,11 @@ class myplugin:
                                 break
                             else:
                                 pass
-        self.dlg.close()
-        self.openlays(gridlayer, cuttedlayer, dict)
 
-
-    # Function for loading intermedier layers:
-    def openlays(self, gridlayer, cuttedlayer, dict):
-        gridlayer.setName("memory_grid")
-        cuttedlayer.setName("cutted_grid_layer")
-        windw = QWidget()
-        windw.setWindowTitle("Intermedier layers")
-        label0 = QLabel("Window for loading the intermedier layers used by the program. It is only available for the development phase!")
-        label1 = QLabel('For loading the grid layer press "GRID" button:')
-        button1 = QPushButton("GRID")
-        button1.clicked.connect(lambda: self.loadgrid(gridlayer))
-        label2 = QLabel('For loading the cutted grid layer press "CUTTED" button:')
-        button2 = QPushButton("CUTTED")
-        button2.clicked.connect(lambda: self.loadcutted(cuttedlayer))
-        label3 = QLabel('For loading the polygon layers inside the grid cells:')
-        button3 = QPushButton("GRID_POLYGON")
-        grid_polygon_checker = 0
-        button3.clicked.connect(lambda: self.grid_polygon(dict, grid_polygon_checker))
-        cancel_button = QPushButton("CANCEL")
-        cancel_button.clicked.connect(lambda: windw.close())
-        hbox1 = QHBoxLayout()
-        hbox1.addStretch(2)
-        hbox1.addWidget(label1)
-        hbox1.addWidget(button1)
-        hbox1.addStretch(2)
-        hbox2 = QHBoxLayout()
-        hbox2.addStretch(2)
-        hbox2.addWidget(label2)
-        hbox2.addWidget(button2)
-        hbox2.addStretch(2)
-        hbox3 = QHBoxLayout()
-        hbox3.addStretch(2)
-        hbox3.addWidget(label3)
-        hbox3.addWidget(button3)
-        hbox3.addStretch(2)
-        hbox4 = QHBoxLayout()
-        hbox4.addStretch(6)
-        hbox4.addWidget(cancel_button)
-        hbox4.addStretch(6)
-        vbox = QVBoxLayout()
-        vbox.addStretch(2)
-        vbox.addWidget(label0)
-        vbox.addStretch(1)
-        vbox.addLayout(hbox1)
-        vbox.addStretch(1)
-        vbox.addLayout(hbox2)
-        vbox.addStretch(1)
-        vbox.addLayout(hbox3)
-        vbox.addStretch(1)
-        vbox.addLayout(hbox4)
-        vbox.addStretch(2)
-        windw.setLayout(vbox)
-        windw.show()
-
-
-    # Function for loading the grid layer:
-    def loadgrid(self, gridlayer):
-        layers = QgsProject.instance().mapLayers().values()
-        loadedvalue = 0
-        for lay in layers:
-            if lay.name() == "memory_grid":
-                loadedvalue = loadedvalue + 1
-        if loadedvalue != 0:
-            self.alreadyloaded()
-        else:
-            QgsProject.instance().addMapLayer(gridlayer)
-
-
-    # Function for loading the cutted grid layer:
-    def loadcutted(self, cuttedlayer):
-        layers = QgsProject.instance().mapLayers().values()
-        loadedvalue = 0
-        for lay in layers:
-            if lay.name() == "cutted_grid_layer":
-                loadedvalue = loadedvalue + 1
-        if loadedvalue != 0:
-            self.alreadyloaded()
-        else:
-            QgsProject.instance().addMapLayer(cuttedlayer)
-
-
-    # Function for loading the random pool layer:
-    def grid_polygon(self, dict, grid_polygon_checker):
-        if grid_polygon_checker != 0:
-            self.alreadyloaded()
-        else:
-            itvalue = 1
-            for elem in dict:
-                one_grid = dict.get(elem)
-                one_grid.setName("grid_cell_polygon_" + str(itvalue))
-                QgsProject.instance().addMapLayer(one_grid)
-                itvalue = itvalue + 1
-            grid_polygon_checker = grid_polygon_checker + 1
-
-
-    # Function for the window if a layer is already loaded:
-    def alreadyloaded(self):
-        windw = QWidget()
-        windw.setWindowTitle("ERROR WINDOW")
-        label0 = QLabel("The selected layer is already loaded!")
-        cancel_button = QPushButton("CANCEL")
-        cancel_button.clicked.connect(lambda: windw.close())
-        hbox = QHBoxLayout()
-        hbox.addStretch(6)
-        hbox.addWidget(cancel_button)
-        hbox.addStretch(6)
-        vbox = QVBoxLayout()
-        vbox.addStretch(2)
-        vbox.addWidget(label0)
-        vbox.addStretch(1)
-        vbox.addLayout(hbox)
-        vbox.addStretch(2)
-        windw.setLayout(vbox)
-        windw.show()
 
 
     #--------------------------- CREATING THE DIALOG WINDOW --------------------------------------------------------------
+
 
 
     def run(self):
@@ -924,7 +2113,8 @@ class myplugin:
         self.dlg.button_oversampling.toggled.connect(lambda: self.oversample(self.dlg.oversample))
         oversampling_group.addButton(self.dlg.button_not_oversampling)
         oversampling_group.addButton(self.dlg.button_oversampling)
-        #
+        # Setting the checkbox for enabling stratified sampling:
+        self.dlg.strat_button.clicked.connect(lambda: self.is_strat_sel())
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
@@ -932,5 +2122,5 @@ class myplugin:
         # See if OK was pressed
         if result:
             #
-            self.gridplacement(self.dlg.cbox.currentText(), self.dlg.numb.text(), self.dlg.custom_quadr.text(), self.quadrchecker, self.dlg.oversample.text(), self.is_oversampling)
+            self.iscorrect(self.dlg.cbox.currentText(), self.dlg.numb.text(), self.dlg.custom_quadr.text(), self.quadrchecker, self.dlg.oversample.text(), self.is_oversampling, self.is_strat)
 
