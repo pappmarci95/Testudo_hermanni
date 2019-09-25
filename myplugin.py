@@ -26,7 +26,7 @@ import os
 import tempfile
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, QVariant, Qt, QMetaType
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox, QRadioButton, QButtonGroup
+from PyQt5.QtWidgets import QAction, QDialog, QWidget, QPushButton, QTextBrowser, QLabel, QVBoxLayout, QHBoxLayout, QLineEdit, QListWidget, QComboBox, QRadioButton, QButtonGroup, QScrollArea
 from random import uniform, sample, randint, shuffle
 from qgis.core import *
 import processing
@@ -128,7 +128,6 @@ class myplugin:
 
         # List storing the used serials in range or discrete value id assignments:
         self.used_serials = []
-
 
 
 
@@ -256,12 +255,8 @@ class myplugin:
 
 
     # Error window for raster processing:
-    def errorwindow(self, numb, selected_vect_layer_name):
+    def errorwindow(self, numb, selected_vect_layer):
         text = ""
-        if numb == 1:
-            text = "There should be a vector layer loaded"
-        if numb == 2:
-            text = "A layer must be selected"
         if numb == 4:
             text = "There should be a raster layer loaded"
         if numb == 7:
@@ -276,16 +271,12 @@ class myplugin:
         textbox.append(text)
         ok_button = QPushButton()
         ok_button.setText("OK")
-        if numb == 1:
-            ok_button.clicked.connect(lambda: windw.close())
-        if numb == 2:
-            ok_button.clicked.connect(lambda: self.errorclose(windw))
         if numb == 4:
             ok_button.clicked.connect(lambda: self.errorclose(windw))
         if numb == 7:
-            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+            ok_button.clicked.connect(lambda: self.raster(selected_vect_layer, windw, 1))
         if numb == 9:
-            ok_button.clicked.connect(lambda: self.rastlay(selected_vect_layer_name, windw))
+            ok_button.clicked.connect(lambda: self.raster(selected_vect_layer, windw, 1))
         if numb == 10:
             ok_button.clicked.connect(lambda: windw.close())
         vbox = QVBoxLayout()
@@ -298,84 +289,46 @@ class myplugin:
     # Function for error window to close itself and open self.raster():
     def errorclose(self, windw):
         windw.close()
-        self.raster()
 
 
-    # Function to get mean of raster data, first the selection of vector data:
-    def raster(self):
+    # Function for selecting the raster layer:
+    def raster(self, selected_vect_layer, windw, is_windw):
+        if is_windw == 1:
+            windw.close()
         loaded_layers = self.iface.mapCanvas().layers()
-        vector_layers = []
+        raster_layers = []
         for layer in loaded_layers:
-            if layer.type() == QgsMapLayer.VectorLayer:
-                vector_layers.append(layer)
-        loaded_layers = vector_layers
+            if layer.type() == QgsMapLayer.RasterLayer:
+                raster_layers.append(layer)
+        loaded_layers = raster_layers
         if not loaded_layers:
-            self.errorwindow(1, selected_vect_layer_name=None)
+            self.errorwindow(4, selected_vect_layer)
         else:
             loaded_layers_list = []
             for lay in loaded_layers:
                 layname = lay.name()
                 loaded_layers_list.append(layname)
             windw = QWidget()
-            windw.setWindowTitle("Vector layer selection")
-            label = QLabel()
-            label.setText("Vector layer selection:")
-            laylist = QComboBox()
-            laylist.addItems(loaded_layers_list)
+            windw.setWindowTitle("Raster layer and attribute selection")
+            label1 = QLabel()
+            label1.setText("Raster layer selection:")
+            label2 = QLabel()
+            label2.setText("Name of the raster average field (It will be the given name and mean in the field list!):")
+            rastlist = QComboBox()
+            rastlist.clear()
+            rastlist.addItems(loaded_layers_list)
+            nameoffield = QLineEdit()
             ok_button = QPushButton()
             ok_button.setText("OK")
-            ok_button.clicked.connect(lambda: self.rastlay(laylist.currentText(), windw))
+            ok_button.clicked.connect(lambda: self.rasterlaycheck(windw, selected_vect_layer, rastlist.currentText(), nameoffield.text()))
             vbox = QVBoxLayout()
-            vbox.addWidget(label)
-            vbox.addWidget(laylist)
+            vbox.addWidget(label1)
+            vbox.addWidget(rastlist)
+            vbox.addWidget(label2)
+            vbox.addWidget(nameoffield)
             vbox.addWidget(ok_button)
             windw.setLayout(vbox)
             windw.show()
-
-
-    # Function for checking the selected layers name and window for selecting the raster layer, and selecting the attribute
-    # to save the raster averages:
-    def rastlay(self, selecteditems, windw):
-        windw.close()
-        selected_vect_layer_name = selecteditems
-        if not selected_vect_layer_name:
-            self.errorwindow(2, selected_vect_layer_name=None)
-        else:
-            selected_vect_layer = QgsProject.instance().mapLayersByName(selected_vect_layer_name)[0]
-            loaded_layers = self.iface.mapCanvas().layers()
-            raster_layers = []
-            for layer in loaded_layers:
-                if layer.type() == QgsMapLayer.RasterLayer:
-                    raster_layers.append(layer)
-            loaded_layers = raster_layers
-            if not loaded_layers:
-                self.errorwindow(4, selected_vect_layer_name=None)
-            else:
-                loaded_layers_list = []
-                for lay in loaded_layers:
-                    layname = lay.name()
-                    loaded_layers_list.append(layname)
-                windw = QWidget()
-                windw.setWindowTitle("Raster layer and attribute selection")
-                label1 = QLabel()
-                label1.setText("Raster layer selection:")
-                label2 = QLabel()
-                label2.setText("Name of the raster average field:")
-                rastlist = QComboBox()
-                rastlist.clear()
-                rastlist.addItems(loaded_layers_list)
-                nameoffield = QLineEdit()
-                ok_button = QPushButton()
-                ok_button.setText("OK")
-                ok_button.clicked.connect(lambda: self.rasterlaycheck(windw, selected_vect_layer, rastlist.currentText(), nameoffield.text()))
-                vbox = QVBoxLayout()
-                vbox.addWidget(label1)
-                vbox.addWidget(rastlist)
-                vbox.addWidget(label2)
-                vbox.addWidget(nameoffield)
-                vbox.addWidget(ok_button)
-                windw.setLayout(vbox)
-                windw.show()
 
 
     # Function for checking raster layer if it has a unique name and getting the selected attributes index:
@@ -472,7 +425,7 @@ class myplugin:
         windw.setWindowTitle("Stratification settings")
         label1 = QLabel("If raster point averaging inside polygons is needed, please press AVERAGE RASTER button:")
         rast_button = QPushButton("AVERAGE RASTER")
-        rast_button.clicked.connect(lambda: self.raster())
+        rast_button.clicked.connect(lambda: self.raster(layer, 0, 0))
         self.stratlist = QListWidget()
         plus_button = QPushButton("+")
         plus_button.clicked.connect(lambda: self.stratspec(layer, self.stratlist))
@@ -937,6 +890,12 @@ class myplugin:
         windw = QWidget()
         windw.setWindowTitle("ID selection")
         vbox = QVBoxLayout()
+        scrollbox = QScrollArea()
+        vbox.addWidget(scrollbox)
+        scrollbox.setWidgetResizable(True)
+        scrollarea = QWidget(scrollbox)
+        scrollvbox = QVBoxLayout(scrollarea)
+        scrollarea.setLayout(scrollvbox)
         label_dict = {}
         line_edit_dict = {}
         hbox_dict = {}
@@ -958,10 +917,11 @@ class myplugin:
                 thishbox = hbox_dict.get("hbox" + str(elem_count))
                 thishbox.addWidget(thislabel)
                 thishbox.addWidget(thisline)
-                vbox.addLayout(thishbox)
+                scrollvbox.addLayout(thishbox)
                 usedelems.append([elem_count, elem])
                 usedelems2.append(elem)
                 elem_count = elem_count + 1
+        scrollbox.setWidget(scrollarea)
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(lambda: self.check_disc_ids(field_data_list, field_elems, stratlist, field, layer, windw, line_edit_dict, usedelems, usedelems2))
         cancel_button = QPushButton("CANCEL")
@@ -1178,74 +1138,91 @@ class myplugin:
         return elem[1]
 
 
+    # Function for error window if no stratum determiner is given:
+    def error_for_strat(self):
+        windw = QWidget()
+        windw.setWindowTitle("Error window")
+        label = QLabel("Please add a stratum determiner before proceed to sampling!")
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: windw.close())
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(ok_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
     # Function for selecting sample amount of each stratum:
     def sampperstratum(self, windw, layer):
-        field_names = []
-        for f in layer.fields():
-            field_names.append(f.name())
-        probenumb = 1
-        id_error = 0
-        timeout = time.time() + 60
-        stratname_index = int()
-        while True:
-            stratname = "str_nm" + str(probenumb)
-            if stratname not in field_names:
-                layer.dataProvider().addAttributes([QgsField(stratname, QVariant.String)])
-                layer.updateFields()
-                stratname_index = layer.fields().indexFromName(stratname)
-                break
-            if time.time() > timeout:
-                id_error = 1
-                break
-            else:
-                probenumb = probenumb + 1
-        if id_error == 1:
-            self.error_timeout()
+        if not self.stratdata:
+            self.error_for_strat()
         else:
-            windw.close()
-            stratdata = sorted(self.stratdata, key=self.sort_for_strat)
-            fields = layer.fields()
-            first_strat = 1
-            happendvalue = str(1)
-            changetovalue = str()
-            layer.startEditing()
-            for field in fields:
-                field_id = layer.fields().indexFromName(field.name())
-                for elem in stratdata:
-                    if int(elem[1]) == int(field_id):
-                        happendvalue = happendvalue + str(2)
-                        for feat in layer.getFeatures():
-                            attrs = feat.attributes()
-                            value = attrs[field_id]
-                            if elem[2] == 1:
-                                happendvalue = happendvalue + str(3)
-                                for rang in elem[3]:
-                                    if float(rang[1]) <= float(value) < float(rang[2]) or float(value) == float(rang[2]) == float(elem[4]):
-                                        happendvalue = happendvalue + str(4)
-                                        if first_strat == 1:
-                                            changeto = str(rang[0])
-                                        else:
-                                            changeto = str(attrs[stratname_index]) + str(rang[0])
-                                        changetovalue = changetovalue + "," + str(rang[0])
-                                        layer.changeAttributeValue(feat.id(), stratname_index, str(changeto))
-                                        break
-                            if elem[2] == 2:
-                                happendvalue = happendvalue + str(3)
-                                for val in elem[3]:
-                                    if str(value) == str(val[1]):
-                                        happendvalue = happendvalue + str(4)
-                                        if first_strat == 1:
-                                            changeto = str(val[0])
-                                        else:
-                                            changeto = str(attrs[stratname_index]) + str(val[0])
-                                        changetovalue = changetovalue + "," + str(val[0])
-                                        layer.changeAttributeValue(feat.id(), stratname_index, str(changeto))
-                                        break
-                        first_strat = first_strat + 1
-                        this_ind = stratdata.index(elem)
-                        del stratdata[this_ind]
-                        break
-            self.strat_is_over(layer, stratname_index)
+            field_names = []
+            for f in layer.fields():
+                field_names.append(f.name())
+            probenumb = 1
+            id_error = 0
+            timeout = time.time() + 60
+            stratname_index = int()
+            while True:
+                stratname = "str_nm" + str(probenumb)
+                if stratname not in field_names:
+                    layer.dataProvider().addAttributes([QgsField(stratname, QVariant.String)])
+                    layer.updateFields()
+                    stratname_index = layer.fields().indexFromName(stratname)
+                    break
+                if time.time() > timeout:
+                    id_error = 1
+                    break
+                else:
+                    probenumb = probenumb + 1
+            if id_error == 1:
+                self.error_timeout()
+            else:
+                windw.close()
+                stratdata = sorted(self.stratdata, key=self.sort_for_strat)
+                fields = layer.fields()
+                first_strat = 1
+                happendvalue = str(1)
+                changetovalue = str()
+                layer.startEditing()
+                for field in fields:
+                    field_id = layer.fields().indexFromName(field.name())
+                    for elem in stratdata:
+                        if int(elem[1]) == int(field_id):
+                            happendvalue = happendvalue + str(2)
+                            for feat in layer.getFeatures():
+                                attrs = feat.attributes()
+                                value = attrs[field_id]
+                                if elem[2] == 1:
+                                    happendvalue = happendvalue + str(3)
+                                    for rang in elem[3]:
+                                        if float(rang[1]) <= float(value) < float(rang[2]) or float(value) == float(rang[2]) == float(elem[4]):
+                                            happendvalue = happendvalue + str(4)
+                                            if first_strat == 1:
+                                                changeto = str(rang[0])
+                                            else:
+                                                changeto = str(attrs[stratname_index]) + str(rang[0])
+                                            changetovalue = changetovalue + "," + str(rang[0])
+                                            layer.changeAttributeValue(feat.id(), stratname_index, str(changeto))
+                                            break
+                                if elem[2] == 2:
+                                    happendvalue = happendvalue + str(3)
+                                    for val in elem[3]:
+                                        if str(value) == str(val[1]):
+                                            happendvalue = happendvalue + str(4)
+                                            if first_strat == 1:
+                                                changeto = str(val[0])
+                                            else:
+                                                changeto = str(attrs[stratname_index]) + str(val[0])
+                                            changetovalue = changetovalue + "," + str(val[0])
+                                            layer.changeAttributeValue(feat.id(), stratname_index, str(changeto))
+                                            break
+                            first_strat = first_strat + 1
+                            this_ind = stratdata.index(elem)
+                            del stratdata[this_ind]
+                            break
+                self.strat_is_over(layer, stratname_index)
 
 
     # Function for selecting between using and not using oversampling:
@@ -1294,6 +1271,12 @@ class myplugin:
         label = QLabel("Please enter the sample (and oversample) number for each stratum:")
         vbox = QVBoxLayout()
         vbox.addWidget(label)
+        scrollbox = QScrollArea()
+        vbox.addWidget(scrollbox)
+        scrollbox.setWidgetResizable(True)
+        scrollarea = QWidget(scrollbox)
+        scrollvbox = QVBoxLayout(scrollarea)
+        scrollarea.setLayout(scrollvbox)
         counter = 1
         for strat in strats:
             this_data = [int(counter), strat]
@@ -1319,10 +1302,11 @@ class myplugin:
                 overhbox.addWidget(overline)
                 overvbox.addLayout(thishbox)
                 overvbox.addLayout(overhbox)
-                vbox.addLayout(overvbox)
+                scrollvbox.addLayout(overvbox)
             else:
-                vbox.addLayout(thishbox)
+                scrollvbox.addLayout(thishbox)
             counter = counter + 1
+        scrollbox.setWidget(scrollarea)
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(lambda: self.finish_strat(strat_samp_data, strat_line_edit_dict, strat_over_line, selval, strat_info, layer, stratname_index, windw))
         cancel_button = QPushButton("CANCEL")
@@ -1427,6 +1411,8 @@ class myplugin:
     def do_samp_strat(self, strat_info, layer, stratname_index):
         usedlays = []
         fields = layer.fields()
+        stratname_field = fields[stratname_index]
+        stratname = stratname_field.name()
         origcrs = layer.crs().authid()
         if strat_info[0] == 2:
             for elem in strat_info[1]:
@@ -1581,7 +1567,7 @@ class myplugin:
         no_button.clicked.connect(lambda: self.error_ok(windw))
         yes_button = QPushButton("YES")
         # Calling the grid placement function with values that are set default because they are needed if the function is called from stratification:
-        yes_button.clicked.connect(lambda: self.gridplacement(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw, 1, 0, 0, 0))
+        yes_button.clicked.connect(lambda: self.gridplacement(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw, 1, 0, 0))
         vbox = QVBoxLayout()
         vbox.addWidget(label)
         hbox = QHBoxLayout()
@@ -2073,10 +2059,17 @@ class myplugin:
                                 break
                             else:
                                 pass
+        ind = layer.fields().indexFromName(str(idfieldname))
+        dellist = [ind]
+        prov = layer.dataProvider()
+        prov.deleteAttributes(dellist)
+        layer.updateFields()
+
 
 
 
     #--------------------------- CREATING THE DIALOG WINDOW --------------------------------------------------------------
+
 
 
 
@@ -2115,6 +2108,8 @@ class myplugin:
         oversampling_group.addButton(self.dlg.button_oversampling)
         # Setting the checkbox for enabling stratified sampling:
         self.dlg.strat_button.clicked.connect(lambda: self.is_strat_sel())
+        # Setting the name of the dialog:
+        self.dlg.setWindowTitle("VetSamp sampling settings")
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
@@ -2122,5 +2117,5 @@ class myplugin:
         # See if OK was pressed
         if result:
             #
-            self.iscorrect(self.dlg.cbox.currentText(), self.dlg.numb.text(), self.dlg.custom_quadr.text(), self.quadrchecker, self.dlg.oversample.text(), self.is_oversampling, self.is_strat)
+            self.iscorrect(self.dlg.cbox.currentText(), self.dlg.numb.text(), self.dlg.custom_quadr.text(), self.quadrchecker, self.dlg.oversample.text(), self.is_oversampling)
 
