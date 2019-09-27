@@ -1473,11 +1473,11 @@ class VetSamp:
                         pr.addFeatures([feat])
                 sampl_lay.updateExtents()
                 oversample = elem[2]
-                is_oversampling = 2
+                self.is_oversampling = 2
                 is_windw = 0
                 is_from_strat = 1
                 # Grid placement function called with default values for functionalities of the sampling from non stratified data:
-                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, is_oversampling, 0, is_windw, is_from_strat,
+                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, 2, 0, is_windw, is_from_strat,
                                    elem[0])
             self.do_del_field(layer, stratname)
 
