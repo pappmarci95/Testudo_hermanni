@@ -5,7 +5,7 @@
 #							 -------------------
 #		begin				: 2019-09-26
 #		git sha				: $Format:%H$
-#		copyright			: (C) 2019 by Papp Márton János
+#		copyright			: (C) 2019 by Márton Papp
 #		email				: pappmarci95@gmail.com
 # ***************************************************************************/
 #
