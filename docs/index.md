@@ -1,3 +1,8 @@
+---
+layout: default
+---
+
+
 This is the home page for the QGIS plugin, VetSamp. 
 VetSap is an easy to use tool for the method of Stevens and Olsen (2004) for areal sampling.
 
