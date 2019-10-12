@@ -4,7 +4,7 @@
 
 [general]
 name=VetSamp
-qgisMinimumVersion=3.0
+qgisMinimumVersion=3.8
 description=Plugin for areal sampling based on GRTS
 version=1.0
 author=Márton Papp
