@@ -151,6 +151,13 @@ class VetSamp:
         self.windw_quest.setLayout(self.vbox)
 
 
+        # Creating the list for the stratums in the case of stratified sampling:
+        #self.stratlist = QListWidget()
+
+        # Creating the list for the intervals for the definition of continuous variable stratums:
+        #self.listofranges = QListWidget()
+
+
 
 
     # noinspection PyMethodMayBeStatic
@@ -442,10 +449,11 @@ class VetSamp:
         rast_button = QPushButton("AVERAGE RASTER")
         rast_button.clicked.connect(lambda: self.raster(layer, 0, 0))
         self.stratlist = QListWidget()
+        self.stratlist.clear()
         plus_button = QPushButton("+")
-        plus_button.clicked.connect(lambda: self.stratspec(layer, self.stratlist))
+        plus_button.clicked.connect(lambda: self.stratspec(layer))
         minus_button = QPushButton("-")
-        minus_button.clicked.connect(lambda: self.delstratspec(self.stratlist.selectedItems(), self.stratlist))
+        minus_button.clicked.connect(lambda: self.delstratspec(self.stratlist.selectedItems()))
         info_button = QPushButton("INFO")
         info_button.clicked.connect(lambda: self.infostratspec(self.stratlist.selectedItems(), layer))
         ok_button = QPushButton("OK")
@@ -472,7 +480,7 @@ class VetSamp:
 
 
     # Function for adding new stratum determiner:
-    def stratspec(self, layer, stratlist):
+    def stratspec(self, layer):
         windw = QWidget()
         windw.setWindowTitle("Stratum determiner selection")
         label = QLabel("Please select the field to use:")
@@ -490,7 +498,7 @@ class VetSamp:
                 field_names.append(field.name())
         cbox.addItems(field_names)
         ok_button = QPushButton("OK")
-        ok_button.clicked.connect(lambda: self.getfielddata(cbox.currentText(), windw, stratlist, layer))
+        ok_button.clicked.connect(lambda: self.getfielddata(cbox.currentText(), windw, layer))
         cancel_button = QPushButton("CANCEL")
         cancel_button.clicked.connect(lambda: windw.close())
         vbox = QVBoxLayout()
@@ -503,7 +511,7 @@ class VetSamp:
 
 
     # Function for adding the id and field id for the list containing tha data of the determiner and getting the type of it(whether it is a discrete variable or a continuous):
-    def getfielddata(self, field, windw, stratlist, layer):
+    def getfielddata(self, field, windw, layer):
         windw.close()
         # Checking if there is a field selected:
         is_error = 0
@@ -538,9 +546,9 @@ class VetSamp:
             else:
                 if is_there_non_number == 2:
                     field_data_list.append(is_there_non_number)
-                    self.val_ids(field_data_list, field_elems, stratlist, field, layer)
+                    self.val_ids(field_data_list, field_elems, field, layer)
                 else:
-                    self.disc_or_cont(field_data_list, field_elems, stratlist, field, layer)
+                    self.disc_or_cont(field_data_list, field_elems, field, layer)
 
 
     # function for checking if a value is a number:
@@ -585,7 +593,7 @@ class VetSamp:
 
 
     # Function for selecting between discrete and continuous values:
-    def disc_or_cont(self, field_data_list, field_elems, stratlist, field, layer):
+    def disc_or_cont(self, field_data_list, field_elems, field, layer):
         # Setting the value for the type selected (1 is continuous and 2 is discrete):
         self.sel_type = 1
         windw = QWidget()
@@ -600,7 +608,7 @@ class VetSamp:
         button2.toggled.connect(lambda: self.disc_but())
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(
-            lambda: self.use_cont_or_disc(field_data_list, field_elems, windw, stratlist, field, layer))
+            lambda: self.use_cont_or_disc(field_data_list, field_elems, windw, field, layer))
         cancel_button = QPushButton("CANCEL")
         cancel_button.clicked.connect(lambda: windw.close())
         hbox = QHBoxLayout()
@@ -632,18 +640,18 @@ class VetSamp:
 
 
     # Function for selecting the id generation of field elements or ranges based on the previous selection:
-    def use_cont_or_disc(self, field_data_list, field_elems, windw, stratlist, field, layer):
+    def use_cont_or_disc(self, field_data_list, field_elems, windw, field, layer):
         windw.close()
         if self.sel_type == 1:
             field_data_list.append(self.sel_type)
-            self.range_ids(field_data_list, field_elems, stratlist, field, layer)
+            self.range_ids(field_data_list, field_elems, field, layer)
         if self.sel_type == 2:
             field_data_list.append(self.sel_type)
-            self.val_ids(field_data_list, field_elems, stratlist, field, layer)
+            self.val_ids(field_data_list, field_elems, field, layer)
 
 
     # Function for generating ids for ranges of the field values (when they are used as continuous types):
-    def range_ids(self, field_data_list, field_elems, stratlist, field, layer):
+    def range_ids(self, field_data_list, field_elems, field, layer):
         field_elems = [float(i) for i in field_elems]
         whole_field_max = max(field_elems)
         self.current_min = min(field_elems)
@@ -654,15 +662,16 @@ class VetSamp:
         self.used_serials = []
         windw = QWidget()
         windw.setWindowTitle("Range selection for continuous values")
-        listofranges = QListWidget()
+        self.listofranges = QListWidget()
+        self.listofranges.clear()
         plus_button = QPushButton("+")
-        plus_button.clicked.connect(lambda: self.add_range(whole_field_max, listofranges))
+        plus_button.clicked.connect(lambda: self.add_range(whole_field_max))
         minus_button = QPushButton("-")
         minus_button.clicked.connect(
-            lambda: self.del_range(listofranges.selectedItems()[0], listofranges, whole_field_min))
+            lambda: self.del_range(self.listofranges.selectedItems()[0], whole_field_min))
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(
-            lambda: self.finish_range(windw, field_data_list, stratlist, field, layer, whole_field_max))
+            lambda: self.finish_range(windw, field_data_list, field, layer, whole_field_max))
         cancel_button = QPushButton("CANCEL")
         cancel_button.clicked.connect(lambda: windw.close())
         hbox1 = QHBoxLayout()
@@ -672,7 +681,7 @@ class VetSamp:
         hbox2.addWidget(ok_button)
         hbox2.addWidget(cancel_button)
         vbox = QVBoxLayout()
-        vbox.addWidget(listofranges)
+        vbox.addWidget(self.listofranges)
         vbox.addLayout(hbox1)
         vbox.addLayout(hbox2)
         windw.setLayout(vbox)
@@ -680,7 +689,7 @@ class VetSamp:
 
 
     # Function for adding new range:
-    def add_range(self, whole_field_max, listofranges):
+    def add_range(self, whole_field_max):
         if float(self.current_min) == float(whole_field_max):
             window_er = QWidget()
             window_er.setWindowTitle("Error window")
@@ -708,7 +717,7 @@ class VetSamp:
             this_id = QLineEdit()
             ok_button = QPushButton("OK")
             ok_button.clicked.connect(
-                lambda: self.assign_range(whole_field_max, listofranges, newmax.text(), this_id.text(), windw))
+                lambda: self.assign_range(whole_field_max, newmax.text(), this_id.text(), windw))
             cancel_button = QPushButton("CANCEL")
             cancel_button.clicked.connect(lambda: windw.close())
             hbox1 = QHBoxLayout()
@@ -730,7 +739,7 @@ class VetSamp:
 
 
     # Function for checking the previous settings and if correct assign the values:
-    def assign_range(self, whole_field_max, listofranges, newmax, this_id, windw):
+    def assign_range(self, whole_field_max, newmax, this_id, windw):
         windw.close()
         newmax = float(newmax)
         error_text = []
@@ -766,21 +775,21 @@ class VetSamp:
             is_error = is_error + 1
             error_text.append("The ID must be unique, already used IDs are not accepted!")
         if is_error != 0:
-            self.error_range(error_text, whole_field_max, listofranges)
+            self.error_range(error_text, whole_field_max)
         else:
             usedids = [self.serial_for_ranges, this_id]
             self.this_usedids.append(usedids)
             this_range = [self.serial_for_ranges, this_id, self.current_min, newmax]
             self.current_ranges.append(this_range)
             this_range = ', '.join(map(str, this_range))
-            listofranges.addItem(this_range)
+            self.listofranges.addItem(this_range)
             self.used_serials.append(self.serial_for_ranges)
             self.current_min = newmax
             self.serial_for_ranges = self.serial_for_ranges + 1
 
 
     # Function for error window for range assignment:
-    def error_range(self, error_text, whole_field_max, listofranges):
+    def error_range(self, error_text, whole_field_max):
         windw = QWidget()
         windw.setWindowTitle("Error window")
         label = QLabel("The following error(s) occurred:")
@@ -788,7 +797,7 @@ class VetSamp:
         error_text = '\n'.join(error_text)
         textbox.append(error_text)
         ok_button = QPushButton("OK")
-        ok_button.clicked.connect(lambda: self.reopen_range(windw, whole_field_max, listofranges))
+        ok_button.clicked.connect(lambda: self.reopen_range(windw, whole_field_max))
         cancel_button = QPushButton("CANCEL")
         cancel_button.clicked.connect(lambda: windw.close())
         hbox = QHBoxLayout()
@@ -803,13 +812,13 @@ class VetSamp:
 
 
     # Function for reopening range selection:
-    def reopen_range(self, windw, whole_field_max, listofranges):
+    def reopen_range(self, windw, whole_field_max):
         windw.close()
-        self.add_range(whole_field_max, listofranges)
+        self.add_range(whole_field_max)
 
 
     # Function for deleting assigned ranges:
-    def del_range(self, item, listofranges, whole_field_min):
+    def del_range(self, item, whole_field_min):
         if not item:
             windw = QWidget()
             windw.setWindowTitle("Error window")
@@ -831,7 +840,7 @@ class VetSamp:
                     break
             item_serial = int(item_serial)
             serials_to_del = []
-            listelems = [listofranges.item(i) for i in range(listofranges.count())]
+            listelems = [self.listofranges.item(i) for i in range(self.listofranges.count())]
             for x in self.used_serials:
                 if item_serial <= x:
                     serials_to_del.append(x)
@@ -855,7 +864,7 @@ class VetSamp:
                         else:
                             break
                     if int(elem_ser) == int(y):
-                        listofranges.takeItem(listofranges.row(elem))
+                        self.listofranges.takeItem(self.listofranges.row(elem))
             current_maxes = [float(whole_field_min)]
             for elem in self.current_ranges:
                 current_maxes.append(elem[3])
@@ -864,7 +873,7 @@ class VetSamp:
 
 
     # Function for finishing the assigned ranges:
-    def finish_range(self, windw, field_data_list, stratlist, field, layer, whole_field_max):
+    def finish_range(self, windw, field_data_list, field, layer, whole_field_max):
         if float(self.current_min) != float(whole_field_max):
             erwind = QWidget()
             erwind.setWindowTitle("Error window")
@@ -900,13 +909,13 @@ class VetSamp:
             self.usedidnames.append(newusedids)
             list_to_stratlist = [self.id_numb, field, "Continuous data type", whole_field_max]
             list_to_stratlist = ', '.join(map(str, list_to_stratlist))
-            stratlist.addItem(list_to_stratlist)
+            self.stratlist.addItem(list_to_stratlist)
             field_id = layer.fields().indexFromName(field)
             self.usedfields.append([self.id_numb, field_id])
 
 
     # Function for ID assignment window for discrete field values:
-    def val_ids(self, field_data_list, field_elems, stratlist, field, layer):
+    def val_ids(self, field_data_list, field_elems, field, layer):
         windw = QWidget()
         windw.setWindowTitle("ID selection")
         vbox = QVBoxLayout()
@@ -944,7 +953,7 @@ class VetSamp:
         scrollbox.setWidget(scrollarea)
         ok_button = QPushButton("OK")
         ok_button.clicked.connect(
-            lambda: self.check_disc_ids(field_data_list, field_elems, stratlist, field, layer, windw, line_edit_dict,
+            lambda: self.check_disc_ids(field_data_list, field_elems, field, layer, windw, line_edit_dict,
                                         usedelems, usedelems2))
         cancel_button = QPushButton("CANCEL")
         cancel_button.clicked.connect(lambda: windw.close())
@@ -957,8 +966,7 @@ class VetSamp:
 
 
     # Function for getting and checking assignment:
-    def check_disc_ids(self, field_data_list, field_elems, stratlist, field, layer, windw, line_edit_dict, usedelems,
-                       usedelems2):
+    def check_disc_ids(self, field_data_list, field_elems, field, layer, windw, line_edit_dict, usedelems, usedelems2):
         windw.close()
         is_error = 0
         is_missing_value = 0
@@ -1000,7 +1008,7 @@ class VetSamp:
                 vbox.addWidget(textbox2)
             ok_button = QPushButton("OK")
             ok_button.clicked.connect(
-                lambda: self.ok_repoen_disc(field_data_list, field_elems, stratlist, field, layer, windw))
+                lambda: self.ok_repoen_disc(field_data_list, field_elems, field, layer, windw))
             cancel_button = QPushButton("CANCEL")
             cancel_button.clicked.connect(lambda: windw.close())
             hbox = QHBoxLayout()
@@ -1027,19 +1035,19 @@ class VetSamp:
             self.usedidnames.append(newusedids)
             list_to_stratlist = [self.id_numb, field, "Discrete data type"]
             list_to_stratlist = ', '.join(map(str, list_to_stratlist))
-            stratlist.addItem(list_to_stratlist)
+            self.stratlist.addItem(list_to_stratlist)
             field_id = layer.fields().indexFromName(field)
             self.usedfields.append([self.id_numb, field_id])
 
 
     # Function for reopen the id assignment window for discrete values if an error was found and ok is pressed:
-    def ok_repoen_disc(self, field_data_list, field_elems, stratlist, field, layer, windw):
+    def ok_repoen_disc(self, field_data_list, field_elems, field, layer, windw):
         windw.close()
-        self.val_ids(field_data_list, field_elems, stratlist, field, layer)
+        self.val_ids(field_data_list, field_elems, field, layer)
 
 
     # Function for deleting stratification determiner:
-    def delstratspec(self, stratdet, stratlist):
+    def delstratspec(self, stratdet):
         stratdet = stratdet[0].text()
         if not stratdet:
             windw = QWidget()
@@ -1076,7 +1084,7 @@ class VetSamp:
                 if int(elem[0]) == strat_id:
                     ind = self.stratdata.index(elem)
                     del self.stratdata[ind]
-            all_stratdet = [stratlist.item(i) for i in range(stratlist.count())]
+            all_stratdet = [self.stratlist.item(i) for i in range(self.stratlist.count())]
             for elem in all_stratdet:
                 elem_text = elem.text()
                 elem_ser = str()
@@ -1086,7 +1094,7 @@ class VetSamp:
                     else:
                         break
                 if int(elem_ser) == strat_id:
-                    stratlist.takeItem(stratlist.row(elem))
+                    self.stratlist.takeItem(self.stratlist.row(elem))
 
 
     # Function for getting the information about the selected stratification determiner:
@@ -1900,7 +1908,7 @@ class VetSamp:
             line_length = 0
             begin = 0
             begin_for_whole_quadrant = 0
-            dict = {}
+            thisdict = {}
             for feat in feats:
                 # First assign the id of the grid to the first list and then get the polygons inside the grid:
                 featattrs = feat.attributes()
@@ -1911,17 +1919,17 @@ class VetSamp:
                 pars = {'INPUT': layer, 'OVERLAY': feataslay, 'OUTPUT': 'TEMPORARY_OUTPUT'}
                 onelay = processing.run('native:clip', pars)
                 onelayer = onelay['OUTPUT']
-                dict["grid_" + str(feat_order)] = onelayer
+                thisdict["grid_" + str(feat_order)] = onelayer
                 # Creating the information list of the polygons (id, order, length in the line):
                 ft = onelayer.getFeatures()
                 polylist = []
-                ord = 1
+                thisord = 1
                 for fit in ft:
                     featdata = []
                     featattrs = fit.attributes()
                     featid = featattrs[idfieldname_index]
                     featdata.append(featid)
-                    featdata.append(ord)
+                    featdata.append(thisord)
                     for elem in polygon_probs:
                         if int(elem[0]) == int(featid):
                             geom = fit.geometry()
@@ -1935,10 +1943,10 @@ class VetSamp:
                         else:
                             pass
                     polylist.append(featdata)
-                    ord = ord + 1
+                    thisord = thisord + 1
                 # Creating the random permutation of the polygons and its place on the line (It is the final_order_polygons)
                 # and calculating the length of the whole line of the quadrant:
-                randperm = [*range(1, (ord + 1))]
+                randperm = [*range(1, (thisord + 1))]
                 shuffle(randperm)
                 final_order_polygons = []
                 whole_line_length = int()
@@ -1967,7 +1975,7 @@ class VetSamp:
                 # Assigning this final list to the final list of the quadrant line information:
                 sample_order_list.append(final_list)
             # Calling the next function to sample the line created in here:
-            self.getsample(sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer,
+            self.getsample(sample_order_list, line_length, samp_numb, thisdict, layer, cuttedlayer, idfieldname, gridlayer,
                            oversample, is_from_strat, strat_name)
 
 
@@ -1977,7 +1985,7 @@ class VetSamp:
 
 
     # Function for getting the sample:
-    def getsample(self, sample_order_list, line_length, samp_numb, dict, layer, cuttedlayer, idfieldname, gridlayer,
+    def getsample(self, sample_order_list, line_length, samp_numb, thisdict, layer, cuttedlayer, idfieldname, gridlayer,
                   oversample, is_from_strat, strat_name):
         # Getting the line points from a systematic sampling method:
         recent_elem = randint(1, line_length)
@@ -2045,7 +2053,7 @@ class VetSamp:
             cfatts = cf.attributes()
             for sampl in samples:
                 if cfatts[idindex] == sampl[0]:
-                    samplay = dict.get("grid_" + str(cfatts[idindex]))
+                    samplay = thisdict.get("grid_" + str(cfatts[idindex]))
                     samppointlayfeats = samplay.getFeatures()
                     smplf_id_index = samplay.fields().indexFromName(idfieldname)
                     for smplf in samppointlayfeats:
@@ -2080,7 +2088,7 @@ class VetSamp:
                 oscfatts = oscf.attributes()
                 for samp in samples:
                     if oscfatts[idindex] == samp[0]:
-                        samplayer = dict.get("grid_" + str(oscfatts[idindex]))
+                        samplayer = thisdict.get("grid_" + str(oscfatts[idindex]))
                         samppointlayerfeats = samplayer.getFeatures()
                         smplrf_id_index = samplayer.fields().indexFromName(idfieldname)
                         for smplrf in samppointlayerfeats:
