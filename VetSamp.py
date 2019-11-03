@@ -90,6 +90,9 @@ class VetSamp:
         self.is_oversampling = 1
         self.is_strat = 1
 
+        # Value for checking if GPS (WGS84) coordinates of the sample points are desired (1 means don't display them and 2 means to display them):
+        self.isgps = 1
+
 
 
         # STRATIFICATION DATA STORING VARIABLES:
@@ -151,11 +154,8 @@ class VetSamp:
         self.windw_quest.setLayout(self.vbox)
 
 
-        # Creating the list for the stratums in the case of stratified sampling:
-        #self.stratlist = QListWidget()
 
-        # Creating the list for the intervals for the definition of continuous variable stratums:
-        #self.listofranges = QListWidget()
+
 
 
 
@@ -285,28 +285,28 @@ class VetSamp:
     # Error window for raster processing:
     def errorwindow(self, numb, selected_vect_layer):
         text = ""
-        if numb == 4:
+        if numb == 1:
             text = "There should be a raster layer loaded"
-        if numb == 7:
+        if numb == 2:
             text = "A layer must be selected"
-        if numb == 9:
+        if numb == 3:
             text = "The name of the raster average field must be given"
-        if numb == 10:
-            text = "The number of the attribute selected should be below or equal to the number of attributes the layer have"
+        if numb == 4:
+            text = "The selected raster layer must be a valid QGIS raster layer"
         windw = QWidget()
         windw.setWindowTitle("Error window")
         textbox = QTextBrowser()
         textbox.append(text)
         ok_button = QPushButton()
         ok_button.setText("OK")
-        if numb == 4:
+        if numb == 1:
             ok_button.clicked.connect(lambda: self.errorclose(windw))
-        if numb == 7:
+        if numb == 2:
             ok_button.clicked.connect(lambda: self.raster(selected_vect_layer, windw, 1))
-        if numb == 9:
+        if numb == 3:
             ok_button.clicked.connect(lambda: self.raster(selected_vect_layer, windw, 1))
-        if numb == 10:
-            ok_button.clicked.connect(lambda: windw.close())
+        if numb == 4:
+            ok_button.clicked.connect(lambda: self.raster(selected_vect_layer, windw, 1))
         vbox = QVBoxLayout()
         vbox.addWidget(textbox)
         vbox.addWidget(ok_button)
@@ -330,7 +330,7 @@ class VetSamp:
                 raster_layers.append(layer)
         loaded_layers = raster_layers
         if not loaded_layers:
-            self.errorwindow(4, selected_vect_layer)
+            self.errorwindow(1, selected_vect_layer)
         else:
             loaded_layers_list = []
             for lay in loaded_layers:
@@ -365,13 +365,16 @@ class VetSamp:
         windw.close()
         nameoffield = str(nameoffield)
         if not nameoffield:
-            self.errorwindow(9, selected_vect_layer)
+            self.errorwindow(3, selected_vect_layer)
         selected_rast_layer_name = selecteditems
         if not selected_rast_layer_name:
-            self.errorwindow(7, selected_vect_layer)
+            self.errorwindow(2, selected_vect_layer)
         else:
             selected_rast_layer = QgsProject.instance().mapLayersByName(selected_rast_layer_name)[0]
-            self.rastertopolygon(selected_vect_layer, selected_rast_layer, nameoffield)
+            if not selected_rast_layer.isValid():
+                self.errorwindow(4, selected_vect_layer)
+            else:
+                self.rastertopolygon(selected_vect_layer, selected_rast_layer, nameoffield)
 
 
     # Function to acquire the information for polygons and doing the averaging:
@@ -391,6 +394,30 @@ class VetSamp:
 
 
 
+    # Error window for layer selection:
+    def error_strat_lay_sel(self, error_text):
+        windw = QWidget()
+        windw.setWindowTitle("ERROR WINDOW FOR LAYER SELECTION")
+        label = QLabel("The following error(s) occured:")
+        error_text = '\n'.join(error_text)
+        textbox = QTextBrowser()
+        textbox.append(error_text)
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(lambda: self.error_strat_lay_sel_close(windw))
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addWidget(textbox)
+        vbox.addWidget(ok_button)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for closing the previous error window and opening the layer selection:
+    def error_strat_lay_sel_close(self, windw):
+        windw.close()
+        self.stratlaysel()
+
+
     # Window for asking if truly stratified sampling is desired:
     def is_strat_sel(self):
         self.windw_quest.show()
@@ -404,10 +431,12 @@ class VetSamp:
 
     # Function for selecting the layer for sampling:
     def stratlaysel(self):
-        self.dlg.close()
+        # Closing the dialog window, but only if it is open:
+        if self.dlg.isVisible():
+            self.dlg.close()
         # Setting the stratum determiner fields' id generator number to zero:
         self.id_numb = 0
-        # Setting the used fields storing list to an empty one:
+        # Setting list storing the used fields to an empty one:
         self.usedfields = []
         # Setting the list containing the already used ids to an empty one:
         self.usedidnames = []
@@ -442,44 +471,70 @@ class VetSamp:
     # Function for the settings of stratified sampling:
     def usestrat(self, windw, layname):
         windw.close()
-        layer = QgsProject.instance().mapLayersByName(layname)[0]
-        windw = QWidget()
-        windw.setWindowTitle("Stratification settings")
-        label1 = QLabel("If raster point averaging inside polygons is needed, please press AVERAGE RASTER button:")
-        rast_button = QPushButton("AVERAGE RASTER")
-        rast_button.clicked.connect(lambda: self.raster(layer, 0, 0))
-        self.stratlist = QListWidget()
-        self.stratlist.clear()
-        plus_button = QPushButton("+")
-        plus_button.clicked.connect(lambda: self.stratspec(layer))
-        minus_button = QPushButton("-")
-        minus_button.clicked.connect(lambda: self.delstratspec(self.stratlist.selectedItems()))
-        info_button = QPushButton("INFO")
-        info_button.clicked.connect(lambda: self.infostratspec(self.stratlist.selectedItems(), layer))
-        ok_button = QPushButton("OK")
-        ok_button.clicked.connect(lambda: self.sampperstratum(windw, layer))
-        cancel_button = QPushButton("CANCEL")
-        cancel_button.clicked.connect(lambda: windw.close())
-        hbox1 = QHBoxLayout()
-        hbox1.addWidget(label1)
-        hbox1.addWidget(rast_button)
-        vbox = QVBoxLayout()
-        vbox.addLayout(hbox1)
-        vbox.addWidget(self.stratlist)
-        hbox2 = QHBoxLayout()
-        hbox2.addWidget(plus_button)
-        hbox2.addWidget(minus_button)
-        hbox2.addWidget(info_button)
-        vbox.addLayout(hbox2)
-        hbox3 = QHBoxLayout()
-        hbox3.addWidget(ok_button)
-        hbox3.addWidget(cancel_button)
-        vbox.addLayout(hbox3)
-        windw.setLayout(vbox)
-        windw.show()
+        error_text = []
+        is_error = 0
+        if not layname:
+            error_text.append("A layer should be selected")
+            is_error = is_error + 1
+        else:
+            layer = QgsProject.instance().mapLayersByName(layname)[0]
+            if not layer.isValid():
+                error_text.append("The layer must be a valid QGIS vector layer")
+                is_error = is_error + 1
+            else:
+                prob_with_geom = 0
+                feats = layer.getFeatures()
+                for feat in feats:
+                    if prob_with_geom == 0:
+                        geom = feat.geometry()
+                        if not geom.isGeosValid():
+                            prob_with_geom = 1
+                    else:
+                        break
+                if prob_with_geom == 1:
+                    error_text.append("All the layer geometries must be valid")
+                    is_error = is_error + 1
+        if is_error != 0:
+            self.error_strat_lay_sel(error_text)
+        else:
+            layer = QgsProject.instance().mapLayersByName(layname)[0]
+            windw = QWidget()
+            windw.setWindowTitle("Stratification settings")
+            label1 = QLabel("If raster point averaging inside polygons is needed, please press AVERAGE RASTER button:")
+            rast_button = QPushButton("AVERAGE RASTER")
+            rast_button.clicked.connect(lambda: self.raster(layer, 0, 0))
+            self.stratlist = QListWidget()
+            self.stratlist.clear()
+            plus_button = QPushButton("+")
+            plus_button.clicked.connect(lambda: self.stratspec(layer))
+            minus_button = QPushButton("-")
+            minus_button.clicked.connect(lambda: self.delstratspec(self.stratlist.selectedItems()))
+            info_button = QPushButton("INFO")
+            info_button.clicked.connect(lambda: self.infostratspec(self.stratlist.selectedItems(), layer))
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: self.sampperstratum(windw, layer))
+            cancel_button = QPushButton("CANCEL")
+            cancel_button.clicked.connect(lambda: windw.close())
+            hbox1 = QHBoxLayout()
+            hbox1.addWidget(label1)
+            hbox1.addWidget(rast_button)
+            vbox = QVBoxLayout()
+            vbox.addLayout(hbox1)
+            vbox.addWidget(self.stratlist)
+            hbox2 = QHBoxLayout()
+            hbox2.addWidget(plus_button)
+            hbox2.addWidget(minus_button)
+            hbox2.addWidget(info_button)
+            vbox.addLayout(hbox2)
+            hbox3 = QHBoxLayout()
+            hbox3.addWidget(ok_button)
+            hbox3.addWidget(cancel_button)
+            vbox.addLayout(hbox3)
+            windw.setLayout(vbox)
+            windw.show()
 
 
-    # Function for adding new stratum determiner:
+    # Function for adding new stratum determiner, selecting the field:
     def stratspec(self, layer):
         windw = QWidget()
         windw.setWindowTitle("Stratum determiner selection")
@@ -524,7 +579,7 @@ class VetSamp:
             is_there_non_number = 1
             field_id = layer.fields().indexFromName(str(field))
             field_data_list = [field_id]
-            # Creating a list of the fields elements and simultaneously checking whether these elements are numbers or only usables as discrete values:
+            # Creating a list of the fields elements and simultaneously checking whether these elements are only numbers or they can only be used as discrete values:
             feats = layer.getFeatures()
             field_elems = []
             break_for_null = 0
@@ -592,7 +647,7 @@ class VetSamp:
         windw.show()
 
 
-    # Function for selecting between discrete and continuous values:
+    # Function for selecting between discrete and continuous values (only if the values are all numbers):
     def disc_or_cont(self, field_data_list, field_elems, field, layer):
         # Setting the value for the type selected (1 is continuous and 2 is discrete):
         self.sel_type = 1
@@ -673,6 +728,7 @@ class VetSamp:
         ok_button.clicked.connect(
             lambda: self.finish_range(windw, field_data_list, field, layer, whole_field_max))
         cancel_button = QPushButton("CANCEL")
+
         cancel_button.clicked.connect(lambda: windw.close())
         hbox1 = QHBoxLayout()
         hbox1.addWidget(plus_button)
@@ -817,7 +873,7 @@ class VetSamp:
         self.add_range(whole_field_max)
 
 
-    # Function for deleting assigned ranges:
+    # Function for deleting assigned ranges, first :
     def del_range(self, item, whole_field_min):
         if not item:
             windw = QWidget()
@@ -930,7 +986,7 @@ class VetSamp:
         hbox_dict = {}
         elem_count = 1
         # Creating a list to store the used elements with their serial and element name, to use it for the id and value assignment:
-        # It is a list of lists containing the serial number and the elem name
+        # It is a list of lists containing the serial number and the element name
         usedelems = []
         # A list containing just the name of the used elements to know if they are already got an ID selection line:
         usedelems2 = []
@@ -1099,49 +1155,64 @@ class VetSamp:
 
     # Function for getting the information about the selected stratification determiner:
     def infostratspec(self, spec, layer):
-        spec = spec[0].text()
-        indnumb = str()
-        for ltr in spec:
-            if ltr != ",":
-                indnumb = indnumb + str(ltr)
-            else:
-                break
-        for tlist in self.stratdata:
-            if int(tlist[0]) == int(indnumb):
-                speclist = tlist
-        fields = layer.fields()
-        field_index = int(speclist[1])
-        field_name = fields[field_index].name()
-        id_value = str()
-        if speclist[2] == 1:
-            discrete_or_continuous = "Continuous variable"
-            for elem in speclist[3]:
-                id_value = id_value + str(elem[0]) + ": " + str(elem[1]) + "-" + str(elem[2]) + "\n"
+        if not spec:
+            windw = QWidget()
+            windw.setWindowTitle("Error window")
+            label = QLabel("Please select a stratification determiner!")
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: windw.close())
+            hbox = QHBoxLayout()
+            hbox.addStretch(2)
+            hbox.addWidget(ok_button)
+            hbox.addStretch(2)
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addLayout(hbox)
+            windw.setLayout(vbox)
+            windw.show()
         else:
-            discrete_or_continuous = "Discrete variable"
-            for elem in speclist[3]:
-                id_value = id_value + str(elem[0]) + ": " + str(elem[1]) + "\n"
-        windw = QWidget()
-        windw.setWindowTitle("Information window")
-        label = QLabel("Stratum determiner information:")
-        textbox = QTextBrowser()
-        appendtext = "ID: " + str(speclist[0]) + "\n" + "FIELD: " + str(field_name) + "\n" + "TYPE: " + str(
-            discrete_or_continuous) + "\n" + "ID/VALUE PAIRS: " + "\n" + id_value
-        if speclist[2] == 1:
-            appendtext = appendtext + "MAXIMUM OF THE WHOLE RANGE: " + str(speclist[4])
-        textbox.append(appendtext)
-        ok_button = QPushButton("OK")
-        ok_button.clicked.connect(lambda: windw.close())
-        hbox = QHBoxLayout()
-        hbox.addStretch(2)
-        hbox.addWidget(ok_button)
-        hbox.addStretch(2)
-        vbox = QVBoxLayout()
-        vbox.addWidget(label)
-        vbox.addWidget(textbox)
-        vbox.addLayout(hbox)
-        windw.setLayout(vbox)
-        windw.show()
+            spec = spec[0].text()
+            indnumb = str()
+            for ltr in spec:
+                if ltr != ",":
+                    indnumb = indnumb + str(ltr)
+                else:
+                    break
+            for tlist in self.stratdata:
+                if int(tlist[0]) == int(indnumb):
+                    speclist = tlist
+            fields = layer.fields()
+            field_index = int(speclist[1])
+            field_name = fields[field_index].name()
+            id_value = str()
+            if speclist[2] == 1:
+                discrete_or_continuous = "Continuous variable"
+                for elem in speclist[3]:
+                    id_value = id_value + str(elem[0]) + ": " + str(elem[1]) + "-" + str(elem[2]) + "\n"
+            else:
+                discrete_or_continuous = "Discrete variable"
+                for elem in speclist[3]:
+                    id_value = id_value + str(elem[0]) + ": " + str(elem[1]) + "\n"
+            windw = QWidget()
+            windw.setWindowTitle("Information window")
+            label = QLabel("Stratum determiner information:")
+            textbox = QTextBrowser()
+            appendtext = "ID: " + str(speclist[0]) + "\n" + "FIELD: " + str(field_name) + "\n" + "TYPE: " + str(discrete_or_continuous) + "\n" + "ID/VALUE PAIRS: " + "\n" + id_value
+            if speclist[2] == 1:
+                appendtext = appendtext + "MAXIMUM OF THE WHOLE RANGE: " + str(speclist[4])
+            textbox.append(appendtext)
+            ok_button = QPushButton("OK")
+            ok_button.clicked.connect(lambda: windw.close())
+            hbox = QHBoxLayout()
+            hbox.addStretch(2)
+            hbox.addWidget(ok_button)
+            hbox.addStretch(2)
+            vbox = QVBoxLayout()
+            vbox.addWidget(label)
+            vbox.addWidget(textbox)
+            vbox.addLayout(hbox)
+            windw.setLayout(vbox)
+            windw.show()
 
 
     # Function for error_window for time out of stratum name generation:
@@ -1248,16 +1319,16 @@ class VetSamp:
                 self.strat_is_over(layer, stratname_index)
 
 
-    # Function for selecting between using and not using oversampling:
+    # Function for selecting between using and not using oversampling (1 with oversampling and 2 without):
     def strat_is_over(self, layer, stratname_index):
         windw = QWidget()
         windw.setWindowTitle("Oversampling selection")
         label = QLabel(
             "If oversampling is desired in each stratum, please select OVERSAMPLING button,\nif not, please select REGULAR button)")
         oversample_button = QPushButton("OVERSAMPLING")
-        oversample_button.clicked.connect(lambda: self.strat_samp(windw, 1, layer, stratname_index))
+        oversample_button.clicked.connect(lambda: self.is_gps_strat(windw, 1, layer, stratname_index))
         regular_button = QPushButton("REGULAR")
-        regular_button.clicked.connect(lambda: self.strat_samp(windw, 2, layer, stratname_index))
+        regular_button.clicked.connect(lambda: self.is_gps_strat(windw, 2, layer, stratname_index))
         hbox = QHBoxLayout()
         hbox.addWidget(oversample_button)
         hbox.addWidget(regular_button)
@@ -1268,9 +1339,37 @@ class VetSamp:
         windw.show()
 
 
-    # Function for opening the stratum sampling settings window:
-    def strat_samp(self, windw_prev, selval, layer, stratname_index):
+    # Function for deciding if displaying GPS coordinates as well is desired or not:
+    def is_gps_strat(self, windw_prev, selval, layer, stratname_index):
         windw_prev.close()
+        windw = QWidget()
+        windw.setWindowTitle("GPS COORDINATES")
+        label = QLabel("Do you want the GPS coordinates to be displayed as well in the sample point layers attribute table?")
+        yes_button = QPushButton("YES")
+        yes_button.clicked.connect(lambda: self.is_gps_strat_do(windw, selval, layer, stratname_index, 2))
+        no_button = QPushButton("NO")
+        no_button.clicked.connect(lambda: self.is_gps_strat_do(windw, selval, layer, stratname_index, 1))
+        hbox = QHBoxLayout()
+        hbox.addWidget(yes_button)
+        hbox.addWidget(no_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for calling the strat_samp function and change the isgps value based on the previous selection (if gps_sel is 1, GPS coordinates don't needed, if 2
+    # they are needed):
+    def is_gps_strat_do(self, windw_prev, selval, layer, stratname_index, gps_sel):
+        windw_prev.close()
+        if gps_sel == 2:
+            self.isgps = 2
+        self.strat_samp(selval, layer, stratname_index)
+
+
+    # Function for opening the stratum sampling settings window:
+    def strat_samp(self, selval, layer, stratname_index):
         strat_info = [int(selval)]
         strats = []
         feats = layer.getFeatures()
@@ -1462,7 +1561,7 @@ class VetSamp:
                 is_windw = 0
                 is_from_strat = 1
                 # Grid placement function called with default values for functionalities of the sampling from non stratified data:
-                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, is_oversampling, 0, is_windw, is_from_strat,
+                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, is_oversampling, is_from_strat,
                                    elem[0])
             self.do_del_field(layer, stratname)
         if strat_info[0] == 1:
@@ -1485,7 +1584,7 @@ class VetSamp:
                 is_windw = 0
                 is_from_strat = 1
                 # Grid placement function called with default values for functionalities of the sampling from non stratified data:
-                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, 2, 0, is_windw, is_from_strat,
+                self.gridplacement(sampl_lay, elem[1], 0, 1, oversample, 2, is_from_strat,
                                    elem[0])
             self.do_del_field(layer, stratname)
 
@@ -1511,7 +1610,7 @@ class VetSamp:
     # Error window for grid settings:
     def errorforquadr(self, error_text):
         windw = QWidget()
-        windw.setWindowTitle("Error Window")
+        windw.setWindowTitle("ERROR WINDOW")
         label = QLabel("The following error(s) occured (Please press OK to go back to the settings window):")
         text = QTextBrowser()
         error_text = ', '.join(error_text)
@@ -1575,39 +1674,44 @@ class VetSamp:
     def deftoggled(self, custom_quadr):
         self.quadrchecker = 1
         custom_quadr.setEnabled(False)
+        self.dlg.label_cust_1.setEnabled(False)
+        self.dlg.label_cust_2.setEnabled(False)
 
 
     # Function for using custom quadrant ammount:
     def customtoggled(self, custom_quadr):
         self.quadrchecker = 2
         custom_quadr.setEnabled(True)
+        self.dlg.label_cust_1.setEnabled(True)
+        self.dlg.label_cust_2.setEnabled(True)
 
 
     # Function for the disable oversampling button:
     def notoversample(self, oversample):
         self.is_oversampling = 1
         oversample.setEnabled(False)
+        self.dlg.label_ov_1.setEnabled(False)
+        self.dlg.label_ov_2.setEnabled(False)
 
 
     # Function for oversample button:
     def oversample(self, oversample):
         self.is_oversampling = 2
         oversample.setEnabled(True)
+        self.dlg.label_ov_1.setEnabled(True)
+        self.dlg.label_ov_2.setEnabled(True)
 
 
     # Function of the window asking back if the settings are correct:
     def iscorrect(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling):
         windw = QWidget()
-        windw.setWindowTitle("Settings accepting")
+        windw.setWindowTitle("ACCEPTING SETTINGS")
         label = QLabel(
             "Are you sure that everything is correctly set?\nIf yes please press YES! If not please press NO!")
         no_button = QPushButton("NO")
         no_button.clicked.connect(lambda: self.error_ok(windw))
         yes_button = QPushButton("YES")
-        # Calling the grid placement function with values that are set default because they are needed if the function is called from stratification:
-        yes_button.clicked.connect(
-            lambda: self.gridplacement(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw, 1,
-                                       0, 0))
+        yes_button.clicked.connect(lambda: self.is_gps(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw))
         vbox = QVBoxLayout()
         vbox.addWidget(label)
         hbox = QHBoxLayout()
@@ -1618,11 +1722,38 @@ class VetSamp:
         windw.show()
 
 
+    # Function for the window checking if GPS coordinates are needed (It calls the next function with the decision_numb = 1, if not and 2 if needed):
+    def is_gps(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windwp):
+        windwp.close()
+        windw = QWidget()
+        windw.setWindowTitle("GPS COORDINATES")
+        label = QLabel("Do you want the GPS coordinates to be displayed as well in the sample point layers attribute table?")
+        yes_button = QPushButton("YES")
+        yes_button.clicked.connect(lambda: self.is_gps_do(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, 2, windw))
+        no_button = QPushButton("NO")
+        no_button.clicked.connect(lambda: self.is_gps_do(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, 1, windw))
+        hbox = QHBoxLayout()
+        hbox.addWidget(yes_button)
+        hbox.addWidget(no_button)
+        vbox = QVBoxLayout()
+        vbox.addWidget(label)
+        vbox.addLayout(hbox)
+        windw.setLayout(vbox)
+        windw.show()
+
+
+    # Function for changing the isgps value and call the gridplacement function:
+    def is_gps_do(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling, decision_numb, windw):
+        windw.close()
+        if decision_numb == 2:
+            self.isgps = 2
+        # Calling the grid placement function with some values that are set default because they are needed only if the function is called from stratification:
+        self.gridplacement(layer, samp_number, custom, quadrchecker, oversample, is_oversampling, 0, 0)
+
+
     # Grid placement on the layer:
-    def gridplacement(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling, windw, is_windw,
+    def gridplacement(self, layer, samp_number, custom, quadrchecker, oversample, is_oversampling,
                       is_from_strat, strat_name):
-        if is_windw == 1:
-            windw.close()
         erro_text = []
         is_error = 0
         samp_number_problem = 0
@@ -1630,6 +1761,25 @@ class VetSamp:
         if not layer:
             erro_text.append("A layer should be selected")
             is_error = is_error + 1
+        else:
+            if is_from_strat == 0:
+                layer = QgsProject.instance().mapLayersByName(layer)[0]
+            if not layer.isValid():
+                erro_text.append("The layer must be a valid QGIS vector layer")
+                is_error = is_error + 1
+            else:
+                prob_with_geom = 0
+                feats = layer.getFeatures()
+                for feat in feats:
+                    if prob_with_geom == 0:
+                        geom = feat.geometry()
+                        if not geom.isGeosValid():
+                            prob_with_geom = 1
+                    else:
+                        break
+                if prob_with_geom == 1:
+                    erro_text.append("All the layer geometries must be valid")
+                    is_error = is_error + 1
         if not samp_number:
             erro_text.append("A sample number must be given")
             is_error = is_error + 1
@@ -1693,8 +1843,8 @@ class VetSamp:
         if is_error != 0:
             self.errorforquadr(erro_text)
         else:
-            if is_from_strat == 0:
-                layer = QgsProject.instance().mapLayersByName(layer)[0]
+            # Here starts the actual grid placement
+            # First we obtain the X and Y extent of the layer and check which is bigger
             layextent = layer.extent()
             xextentmax = layextent.xMaximum()
             xextentmin = layextent.xMinimum()
@@ -1711,6 +1861,8 @@ class VetSamp:
                 basenumb = 1
             if yrange > xrange:
                 basenumb = 2
+            # If the X is bigger the first extent of the grid in both directions will be as long as the range
+            # of the X extent of the layer
             if basenumb == 1:
                 rangedif = xrange - yrange
                 rangeadd = rangedif / 2
@@ -1718,6 +1870,8 @@ class VetSamp:
                 yextentmin = yextentmin - rangeadd
                 xextentmax = xextentmax
                 xextentmin = xextentmin
+            # If the Y is bigger the first extent of the grid in both directions will be as long as the range
+            # of the Y extent of the layer
             if basenumb == 2:
                 rangedif = yrange - xrange
                 rangeadd = rangedif / 2
@@ -1725,10 +1879,16 @@ class VetSamp:
                 xextentmin = xextentmin - rangeadd
                 yextentmax = yextentmax
                 yextentmin = yextentmin
+            # Get the size of the cells based on the extent of the whole grid and the
+            # desired cell number in a line
             cellx = (xextentmax - xextentmin) / (2 ** cellgen)
             celly = (yextentmax - yextentmin) / (2 ** cellgen)
+            # Calculating the length to add for the previously calculated extent for letting the
+            # grid be one cell size bigger than the longest extent of the layer
             addx = (cellx * (2 ** cellgen)) / ((2 ** cellgen) - 1)
             addy = addx
+            # For the random plaecemnt of the grid we need to cut the added length to two part and randomly
+            # add it to each side of the grid
             randfractx = round(uniform(1, 100), 1)
             randfracty = round(uniform(1, 100), 1)
             addx1 = addx / randfractx
@@ -1749,12 +1909,14 @@ class VetSamp:
             if randnumby == 2:
                 yextentmax = yextentmax + addy2
                 yextentmin = yextentmin - addy1
+            # Calculating the now correct cell extent
             cellx = (xextentmax - xextentmin) / (2 ** cellgen)
             celly = (yextentmax - yextentmin) / (2 ** cellgen)
             extent = str(xextentmin) + ',' + str(xextentmax) + ',' + str(yextentmin) + ',' + str(yextentmax)
             crs = layer.crs()
             parameters = {'EXTENT': extent, 'HSPACING': cellx, 'VSPACING': celly, 'TYPE': 2, 'CRS': crs,
                           'OUTPUT': 'TEMPORARY_OUTPUT', 'HOVERLAY': 0, 'VOVERLAY': 0}
+            # Place the grid
             grid = processing.run('qgis:creategrid', parameters)
             gridlay = grid['OUTPUT']
             self.gridorder(cellgen, cellnumb, layer, gridlay, samp_number, oversample, is_oversampling, is_from_strat,
@@ -1764,14 +1926,20 @@ class VetSamp:
     # Creating the order of cell IDs to match the here created hierarchical order of cell serial numbers:
     def gridorder(self, cellgen, cellnumb, layer, gridlayer, samp_numb, oversample, is_oversampling, is_from_strat,
                   strat_name):
+        # Creating a list with all the possible cell numbers
         numblist = []
         for i in range(1, (cellnumb + 1)):
             numblist.append(i)
+        # The grid cells are ordered by the columns, but we need them to be ordered by the lines, so
+        # first we order the cell numbers the way we need them (but here only just every second ones)
         initlist = []
         for i in range(1, (2 ** cellgen + 1), 2):
             for x in range(1, (2 ** cellgen + 1), 2):
                 number = numblist[i + ((x - 1) * (2 ** cellgen)) - 1]
                 initlist.append(number)
+        # Here we already created a list with sublists of the lowest levels of quadrants
+        # In the next section we create quadrants from the previous lists (of quadtrants)
+        # until there are only four lists left
         newlist = []
         for i in initlist:
             listquadr = [numblist[i - 1], numblist[i + (2 ** cellgen) - 1], numblist[i], numblist[i + (2 ** cellgen)]]
@@ -1792,6 +1960,10 @@ class VetSamp:
                         usedlist.append(numblist[x + (2 ** (cellgen - i)) + 1])
                 numblist = newlist
         numblist = list(self.flatten(numblist))
+        # After we obtained the list of the quadrants and their elements, we need
+        # to create the first random order of 1 to 4, then go through the elements from each
+        # create four values by ading it a second digit by a random permutation of
+        # 1 to 4. We does this until the last level is done (there are as many as the length of cellgen)
         orderlist = [1, 2, 3, 4]
         shuffle(orderlist)
         for i in range(1, cellgen):
@@ -1805,6 +1977,8 @@ class VetSamp:
             orderlist = newlist
         orderlist = list(map(int, orderlist))
         orderlist_old = copy.deepcopy(orderlist)
+        # If oversampling is selected, we reverse the previously
+        # designed numbers
         if is_oversampling == 2:
             revord = []
             for elem in orderlist:
@@ -1813,6 +1987,10 @@ class VetSamp:
                 elem = int(elem)
                 revord.append(elem)
             orderlist = revord
+        # Lastly we get the id of the cells, check for the ordinal
+        # number of it in the constructed quadrant based list and check for the
+        # value in the same place of order in the quadrant order number list, then
+        # change the value to it in the id field
         gridfeatures = gridlayer.getFeatures()
         attrindex = gridlayer.fields().indexFromName("id")
         gridlayer.startEditing()
@@ -1871,10 +2049,13 @@ class VetSamp:
                 area = Decimal(area)
                 layarea = layarea + area
             layarea = Decimal(layarea)
+            # Get the whole line length, which is the sample number multiplied by 100,000
             wholeline = int(samp_numb) * 100000
             wholeline = Decimal(wholeline)
             polygon_probs = []
             idnumb = 1
+            # Assigning id numbers for polygons and getting the area occupied by one polygon on the whole line (The id and the length
+            # is stored in the polygon_probs variable, first is the id, second is the area of the polygon and third is the length of its line segment)
             fts = layer.getFeatures()
             layer.startEditing()
             for feat in fts:
@@ -1902,15 +2083,16 @@ class VetSamp:
             idindex = cuttedlayer.fields().indexFromName("id")
             feats = sorted(feats, key=self.get_name)
             # Looping through the sorted features and get the data of its line segment
-            # (a list of two lists; in the first list there is the quadrant id and will be the extent of the line segment,
-            # and in the second list there are lists containing the id of the polygon and the extent of it inside the quadrant):
+            # (a list of two lists; in the first list there is the quadrant id and will be the extent of the line segment it is the ordrange,
+            # and in the second list there are lists containing the id of the polygon and the extent of it inside the quadrant, which is the final_order_polygons):
             sample_order_list = []
             line_length = 0
             begin = 0
             begin_for_whole_quadrant = 0
             thisdict = {}
             for feat in feats:
-                # First assign the id of the grid to the first list and then get the polygons inside the grid:
+                # First assign the id of the grid to the first list ()ordrange and then get the polygons inside the grid (as a layer, stored in the dictionary thisdict)
+                # it will be useful for selecting the polygon part in which a random point selection is needed:
                 featattrs = feat.attributes()
                 feat_order = featattrs[idindex]
                 ordrange = [feat_order]
@@ -1920,7 +2102,7 @@ class VetSamp:
                 onelay = processing.run('native:clip', pars)
                 onelayer = onelay['OUTPUT']
                 thisdict["grid_" + str(feat_order)] = onelayer
-                # Creating the information list of the polygons (id, order, length in the line):
+                # Creating the information list of the polygons (id, order, length in the line, it is the polylist):
                 ft = onelayer.getFeatures()
                 polylist = []
                 thisord = 1
@@ -1961,8 +2143,9 @@ class VetSamp:
                             begin = begin + el[2]
                         else:
                             pass
-                # Assigning the whole line length to the list containing the polygon id
-                # and assigning the quadrants line length to the variable holding the whole line (line_length):
+                # Assigning the whole line length to the list containing the polygon id (ordrange)
+                # and assigning the quadrants line length to the variable holding the whole line (line_length)
+                # also creating the begining for the next quadrant:
                 line_length = line_length + whole_line_length
                 whole_line_length_as_number = copy.deepcopy(whole_line_length)
                 whole_line_length = [
@@ -1987,7 +2170,8 @@ class VetSamp:
     # Function for getting the sample:
     def getsample(self, sample_order_list, line_length, samp_numb, thisdict, layer, cuttedlayer, idfieldname, gridlayer,
                   oversample, is_from_strat, strat_name):
-        # Getting the line points from a systematic sampling method:
+        # Getting the line points from a systematic sampling method by assigning a random point in the line and then
+        # selecting points in specific intervals (we get the interval if we divide the whole line to segments as many as the sample number):
         recent_elem = randint(1, line_length)
         line_numbers = [recent_elem]
         line_step = line_length / int(samp_numb)
@@ -2002,7 +2186,7 @@ class VetSamp:
                 line_numb = math.trunc(line_numb)
                 line_numbers.append(line_numb)
                 recent_elem = line_numb
-        # Getting the ids from the previously got line points:
+        # Getting the ids from the previously got line points (by the previously constructed lists):
         samples = []
         for elem in sample_order_list:
             for samp in line_numbers:
@@ -2020,8 +2204,10 @@ class VetSamp:
             sample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), namelay, "memory")
         pr = sample_point_layer.dataProvider()
         sample_point_layer.startEditing()
-        pr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String),
-                          QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
+        if self.isgps == 2:
+            pr.addAttributes([QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double), QgsField("GPS_X_Coordinate", QVariant.Double), QgsField("GPS_Y_Coordinate", QVariant.Double)])
+        else:
+            pr.addAttributes([QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
         sample_point_layer.updateFields()
         QgsProject.instance().addMapLayer(sample_point_layer)
         # Creating a layer for the oversample points if oversampling is selected:
@@ -2033,20 +2219,26 @@ class VetSamp:
                 oversample_point_layer = QgsVectorLayer("Point?crs={0}".format(origcrs), nameovlay, "memory")
             opr = oversample_point_layer.dataProvider()
             oversample_point_layer.startEditing()
-            opr.addAttributes([QgsField("Order_number", QVariant.String), QgsField("Serial_number", QVariant.String),
-                               QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
+            if self.isgps == 2:
+                opr.addAttributes([QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double), QgsField("GPS_X_Coordinate", QVariant.Double), QgsField("GPS_Y_Coordinate", QVariant.Double)])
+            else:
+                opr.addAttributes([QgsField("Serial_number", QVariant.String), QgsField("X_Coordinate", QVariant.Double), QgsField("Y_Coordinate", QVariant.Double)])
             oversample_point_layer.updateFields()
             QgsProject.instance().addMapLayer(oversample_point_layer)
         # Taking-apart the oversample component of the sample number from the real sample amount (if there is oversampling):
         if self.is_oversampling == 2:
             samp_numb = int(samp_numb) - int(oversample)
-        # Generating random points in the selected polygon fragments:
+        # Generating random points in the selected polygon fragments,
+        # first we order the grids by the ids and also the sample ids too:
         cutfeats = cuttedlayer.getFeatures()
         cutfeats = sorted(cutfeats, key=self.get_name)
         idindex = cuttedlayer.fields().indexFromName("id")
-        samples = sorted(samples, key=self.sampsort)
+        if self.is_oversampling == 1:
+            samples = sorted(samples, key=self.sampsort)
         serial = 1
         samp_counter = 0
+        # Iterating through the cells, and checking if the id is in it, if it is, then we do the same with the polygon fragments in it,
+        # after we found it, we put a random point in it:
         for cf in cutfeats:
             if samp_counter == samp_numb:
                 break
@@ -2069,8 +2261,18 @@ class VetSamp:
                                 randgeom = randfet.geometry()
                             fet = QgsFeature()
                             fet.setGeometry(randgeom)
-                            fet.setAttributes([str(cfatts[idindex]), str(serial), str(randgeom.asPoint()[0]),
-                                               str(randgeom.asPoint()[1])])
+                            if self.isgps == 1:
+                                fet.setAttributes([str(serial), str(randgeom.asPoint()[0]), str(randgeom.asPoint()[1])])
+                            else:
+                                # Calculating the random points GPS coordinates (WGS84 CRS):
+                                x_orig = str(randgeom.asPoint()[0])
+                                y_orig = str(randgeom.asPoint()[1])
+                                gpscrs = QgsCoordinateReferenceSystem(4326)
+                                tr = QgsCoordinateTransform(layer.crs(), gpscrs, QgsProject.instance())
+                                randgeom.transform(tr)
+                                x_gps = str(randgeom.asPoint()[0])
+                                y_gps = str(randgeom.asPoint()[1])
+                                fet.setAttributes([str(serial), x_orig, y_orig, x_gps, y_gps])
                             pr.addFeatures([fet])
                             serial = serial + 1
                             sampind = samples.index(sampl)
@@ -2079,7 +2281,8 @@ class VetSamp:
                             break
                         else:
                             pass
-        # Additional sample creation if oversampling is enabled:
+        # Additional sample creation if oversampling is enabled
+        # after we done with the normal sample points, we does the same with the rest, but put them in the oversample_points layer:
         if self.is_oversampling == 2:
             oscutfeats = cuttedlayer.getFeatures()
             oscutfeats = sorted(cutfeats, key=self.get_name)
@@ -2104,8 +2307,18 @@ class VetSamp:
                                     osrandgeom = osrandfet.geometry()
                                 osfet = QgsFeature()
                                 osfet.setGeometry(osrandgeom)
-                                osfet.setAttributes([str(oscfatts[idindex]), str(serial), str(osrandgeom.asPoint()[0]),
-                                                     str(osrandgeom.asPoint()[1])])
+                                if self.isgps == 1:
+                                    osfet.setAttributes([str(serial), str(osrandgeom.asPoint()[0]), str(osrandgeom.asPoint()[1])])
+                                else:
+                                    # Calculating the random points GPS coordinates (WGS84 CRS):
+                                    os_x_orig = str(osrandgeom.asPoint()[0])
+                                    os_y_orig = str(osrandgeom.asPoint()[1])
+                                    gpscrs = QgsCoordinateReferenceSystem(4326)
+                                    tr = QgsCoordinateTransform(layer.crs(), gpscrs, QgsProject.instance())
+                                    osrandgeom.transform(tr)
+                                    os_x_gps = str(osrandgeom.asPoint()[0])
+                                    os_y_gps = str(osrandgeom.asPoint()[1])
+                                    osfet.setAttributes([str(serial), os_x_orig, os_y_orig, os_x_gps, os_y_gps])
                                 opr.addFeatures([osfet])
                                 serial = serial + 1
                                 sampind = samples.index(samp)
@@ -2175,6 +2388,8 @@ class VetSamp:
         if self.first_start == True:
             self.first_start = False
             self.dlg = VetSampDialog()
+        # Setting to default the value for checking if GPS coordinates are needed:
+        self.isgps = 1
         # Get the loaded layers in the combobox:
         self.dlg.cbox.clear()
         loaded_layers = self.iface.mapCanvas().layers()
@@ -2188,25 +2403,29 @@ class VetSamp:
             name = layer.name()
             loaded_layers_name.append(name)
         self.dlg.cbox.addItems(loaded_layers_name)
-        # Set the radiobuttons and linedit for custom quadrant number:
+        # Set the radiobuttons and linedit for the possible selection of custom quadrant number:
         self.quadrchecker = 1
         self.dlg.custom_quadr.setEnabled(False)
+        self.dlg.label_cust_1.setEnabled(False)
+        self.dlg.label_cust_2.setEnabled(False)
         grid_group = QButtonGroup(self.dlg)
         self.dlg.button_def.setChecked(True)
         self.dlg.button_def.toggled.connect(lambda: self.deftoggled(self.dlg.custom_quadr))
         self.dlg.button_custom.toggled.connect(lambda: self.customtoggled(self.dlg.custom_quadr))
         grid_group.addButton(self.dlg.button_def)
         grid_group.addButton(self.dlg.button_custom)
-        # Set the radiobuttons and lineedit for oversampling:
+        # Set the radiobuttons and lineedit for the possible selection of oversampling:
         self.is_oversampling = 1
         self.dlg.oversample.setEnabled(False)
+        self.dlg.label_ov_1.setEnabled(False)
+        self.dlg.label_ov_2.setEnabled(False)
         oversampling_group = QButtonGroup(self.dlg)
         self.dlg.button_not_oversampling.setChecked(True)
         self.dlg.button_not_oversampling.toggled.connect(lambda: self.notoversample(self.dlg.oversample))
         self.dlg.button_oversampling.toggled.connect(lambda: self.oversample(self.dlg.oversample))
         oversampling_group.addButton(self.dlg.button_not_oversampling)
         oversampling_group.addButton(self.dlg.button_oversampling)
-        # Setting the checkbox for enabling stratified sampling:
+        # Setting the button for opening stratified sampling:
         self.dlg.strat_button.clicked.connect(lambda: self.is_strat_sel())
         # Setting the name of the dialog:
         self.dlg.setWindowTitle("VetSamp sampling settings")
